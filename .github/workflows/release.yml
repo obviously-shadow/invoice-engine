@@ -2,7 +2,7 @@ name: Build and Publish Docker Image
 
 on:
   push:
-    branches: [ "main" ] # Runs every time you push to the main branch
+    branches: [ "main" ]
 
 jobs:
   build-and-push:
@@ -17,18 +17,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: obviously-shadow/invoice-engine
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: obviously-shadow/invoice-engine:latest
-          # This injects the unique GitHub commit fingerprint into your app
+          tags: umarkhorami/invoice-engine:latest
           build-args: |
             IMAGE_SHA=${{ github.sha }}
