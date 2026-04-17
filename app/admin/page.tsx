@@ -6,8 +6,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import ClientActionButtons from "@/components/admin/ClientActionButtons";
 import { Settings, Plus, FileText, AlertTriangle } from "lucide-react";
+import UpdateBadge from "@/components/admin/UpdateBadge";
 
-export const dynamic = 'force-dynamic'; // Claude's Fix
+export const dynamic = 'force-dynamic';
 
 function getDashboardData() {
   const invoices = db.prepare(`
@@ -40,8 +41,11 @@ export default function AdminLedger() {
     <div className="min-h-screen bg-black text-zinc-50 p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-8">
         <header className="flex flex-col md:flex-row justify-between md:items-end gap-6">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tighter text-white mb-1">Command Ledger</h1>
+          <div className="space-y-1">
+            <div className="flex items-center gap-4">
+              <h1 className="text-4xl font-bold tracking-tighter text-white mb-1">Command Ledger</h1>
+              <UpdateBadge />
+            </div>
             <p className="text-zinc-400 text-lg">{data.settings.company_name}</p>
           </div>
           <div className="flex flex-wrap gap-3">

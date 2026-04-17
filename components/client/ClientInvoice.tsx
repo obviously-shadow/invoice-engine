@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Printer, CheckCircle2, PenTool } from "lucide-react";
+import { Printer, PenTool } from "lucide-react";
 
 export default function ClientInvoice({ 
   invoice, 
@@ -29,18 +29,15 @@ export default function ClientInvoice({
     if (canvas && status === 'draft') {
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
         ctx.strokeStyle = '#000000';
       }
     }
   }, [status]);
 
-  // BULLETPROOF MOBILE DRAWING USING POINTER EVENTS
   const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDrawing.current = true;
-    // Capture the pointer so drawing continues even if finger slips slightly outside the box
     e.currentTarget.setPointerCapture(e.pointerId);
     draw(e);
   };
@@ -62,8 +59,6 @@ export default function ClientInvoice({
     setHasSignature(true);
 
     const rect = canvas.getBoundingClientRect();
-    
-    // Calculate precise scaling to fix offset issues on high-DPI mobile screens
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
@@ -100,7 +95,8 @@ export default function ClientInvoice({
       });
       
       if (res.ok) {
-        setStatus('approved');
+        // Reload to fetch the exact signed_at timestamp from the server
+        window.location.reload();
       } else if (res.status === 409) {
         alert("This document has already been signed or updated.");
         window.location.reload();
@@ -128,6 +124,12 @@ export default function ClientInvoice({
   }
 
   const invoiceNumber = `${invoice.id.toString().padStart(6, '0')}`;
+  
+  let formattedSignedDate = "";
+  if (invoice.signed_at) {
+    const isoDate = invoice.signed_at.replace(' ', 'T') + 'Z';
+    formattedSignedDate = new Date(isoDate).toLocaleString();
+  }
 
   return (
     <>
@@ -271,7 +273,6 @@ export default function ClientInvoice({
                   </span>
                   {hasSignature && <button onClick={clearSignature} className="text-xs text-zinc-500 hover:text-red-600 hover:underline font-semibold">Clear Pad</button>}
                 </div>
-                {/* touch-none physically prevents the mobile browser from scrolling while the user draws */}
                 <div className="border border-zinc-300 bg-white h-40 w-full mb-6 cursor-crosshair rounded-md overflow-hidden">
                   <canvas 
                     ref={canvasRef} 
@@ -290,12 +291,16 @@ export default function ClientInvoice({
                 </Button>
               </div>
             ) : (
-              invoice.signature_data && (
+              (invoice.signature_data || invoice.signed_at) && (
                 <div className="mt-8 pt-8 break-inside-avoid w-full">
                   <p className="font-bold text-sm uppercase tracking-wider text-zinc-500 mb-4 block">Authorized Signature</p>
                   <div className="w-full max-w-[300px]">
-                    <img src={invoice.signature_data} alt="Client Signature" className="max-h-24 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
-                    <p className="text-xs text-zinc-400 mt-2 font-medium">Signed electronically by client.</p>
+                    {invoice.signature_data && (
+                      <img src={invoice.signature_data} alt="Client Signature" className="max-h-24 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
+                    )}
+                    <p className="text-xs text-zinc-500 mt-2 font-medium">
+                      Signed electronically by client {formattedSignedDate ? `on ${formattedSignedDate}` : ''}.
+                    </p>
                   </div>
                 </div>
               )

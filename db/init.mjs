@@ -35,6 +35,7 @@ db.exec(`
     tax_rate REAL DEFAULT 13.00,
     notes TEXT,
     signature_data TEXT,
+    signed_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -75,4 +76,4 @@ const insertSettings = db.prepare(`
 `);
 insertSettings.run();
 
-console.log('Database initialization complete! Ready for production.');
+console.log('Database initialization complete. Ready for production.');

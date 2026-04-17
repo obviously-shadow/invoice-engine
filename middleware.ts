@@ -9,11 +9,22 @@ export function middleware(request: NextRequest) {
 
   // 1. CSRF Protection for API mutations
   if (request.method !== 'GET' && pathname.startsWith('/api/')) {
-    const origin = request.headers.get('origin') || '';
-    const host = request.headers.get('host') || '';
-    // Block requests that don't originate from your own domain
-    if (origin && !origin.includes(host)) {
-      return NextResponse.json({ error: 'CSRF blocked' }, { status: 403 });
+    
+    // EXCEPTION: We explicitly allow the public approval endpoint because the 
+    // unguessable token acts as its own cryptographically secure CSRF token.
+    // If we don't skip this, Cloudflare Tunnels will cause false-positive 403 blocks for your clients.
+    if (!pathname.includes('/approve')) {
+      const origin = request.headers.get('origin') || '';
+      const host = request.headers.get('host') || '';
+      const expectedOrigin = process.env.APP_ORIGIN || '';
+
+      if (origin) {
+        // If an APP_ORIGIN env var is set, use it. Otherwise, fallback to strict host checking.
+        const isValidOrigin = expectedOrigin ? origin === expectedOrigin : origin.includes(host);
+        if (!isValidOrigin) {
+          return NextResponse.json({ error: 'CSRF blocked by security middleware' }, { status: 403 });
+        }
+      }
     }
   }
 

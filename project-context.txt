@@ -1,8 +1,8 @@
 === NEPEAN INVOICE ENGINE : FILE TREE ===
 
 nepean-invoice-engine/
+├── .dockerignore
 ├── .gitignore
-├── AGENTS.md
 ├── app
 │   ├── admin
 │   │   ├── builder
@@ -12,6 +12,8 @@ nepean-invoice-engine/
 │   │   └── settings
 │   │       └── page.tsx
 │   ├── api
+│   │   ├── health
+│   │   │   └── route.ts
 │   │   ├── invoices
 │   │   │   ├── route.ts
 │   │   │   └── [token]
@@ -34,13 +36,13 @@ nepean-invoice-engine/
 │   ├── page.tsx
 │   └── setup
 │       └── page.tsx
-├── CLAUDE.md
 ├── components
 │   ├── admin
 │   │   ├── ClientActionButtons.tsx
 │   │   ├── ClientCopyButton.tsx
 │   │   ├── InvoiceBuilder.tsx
-│   │   └── SettingsForm.tsx
+│   │   ├── SettingsForm.tsx
+│   │   └── UpdateBadge.tsx
 │   ├── client
 │   │   └── ClientInvoice.tsx
 │   └── ui
@@ -54,14 +56,13 @@ nepean-invoice-engine/
 ├── components.json
 ├── db
 │   └── init.mjs
+├── docker-compose.yml
+├── Dockerfile
 ├── eslint.config.mjs
 ├── lib
 │   ├── db.ts
 │   └── utils.ts
 ├── middleware.ts
-├── nepean.db
-├── nepean.db-shm
-├── nepean.db-wal
 ├── next-env.d.ts
 ├── next.config.ts
 ├── package.json
@@ -71,16 +72,6 @@ nepean-invoice-engine/
 
 
 === SOURCE CODE ===
-
-
-================================================
-FILE: AGENTS.md
-================================================
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
 
 
 ================================================
@@ -307,6 +298,32 @@ export default function SettingsPage() {
 }
 
 ================================================
+FILE: app/api/health/route.ts
+================================================
+import { NextResponse } from 'next/server';
+import { execSync } from 'child_process';
+import pkg from '@/package.json';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  let localSha = "development";
+  
+  // In Docker, we can inject the image SHA as an environment variable
+  if (process.env.IMAGE_SHA) {
+    localSha = process.env.IMAGE_SHA;
+  }
+
+  return NextResponse.json({
+    status: 'healthy',
+    version: pkg.version,
+    localSha: localSha,
+    // We'll check this against Docker Hub in the frontend
+    repo: "umarkhorami/nepean-engine" 
+  });
+}
+
+================================================
 FILE: app/api/invoices/route.ts
 ================================================
 import { NextResponse } from 'next/server';
@@ -365,19 +382,15 @@ export async function POST(
     const body = await request.json();
     const { signature } = body;
     
-    // SECURITY 1: Payload Validation
     if (signature) {
-      // Must be a PNG data URI
       if (!signature.startsWith('data:image/png;base64,')) {
         return NextResponse.json({ error: 'Invalid signature format.' }, { status: 400 });
       }
-      // Rough size cap: ~2MB limit to prevent database bloating
       if (signature.length > 2800000) {
         return NextResponse.json({ error: 'Signature payload too large.' }, { status: 413 });
       }
     }
 
-    // SECURITY 2: Idempotency & State Check (Must be 'draft' to sign)
     const checkStmt = db.prepare("SELECT status FROM invoices WHERE token = ?");
     const currentInvoice = checkStmt.get(resolvedParams.token) as any;
 
@@ -389,8 +402,12 @@ export async function POST(
       return NextResponse.json({ error: 'Invoice is already approved or paid.' }, { status: 409 });
     }
 
-    // Execute the update
-    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved', signature_data = ? WHERE token = ?");
+    // Capture precise UTC timestamp from SQLite
+    const updateStmt = db.prepare(`
+      UPDATE invoices 
+      SET status = 'approved', signature_data = ?, signed_at = CURRENT_TIMESTAMP 
+      WHERE token = ?
+    `);
     updateStmt.run(signature, resolvedParams.token);
 
     return NextResponse.json({ success: true });
@@ -901,12 +918,6 @@ export default function SetupWizard() {
     </div>
   );
 }
-
-================================================
-FILE: CLAUDE.md
-================================================
-@AGENTS.md
-
 
 ================================================
 FILE: components/admin/ClientActionButtons.tsx
@@ -1457,13 +1468,66 @@ export default function SettingsForm({ initialSettings, initialTemplates }: { in
 }
 
 ================================================
+FILE: components/admin/UpdateBadge.tsx
+================================================
+"use client";
+
+import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { ArrowUpCircle, RefreshCw } from "lucide-react";
+
+export default function UpdateBadge() {
+  const [updateReady, setUpdateReady] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    async function checkVersion() {
+      try {
+        // 1. Get our local status
+        const res = await fetch('/api/health');
+        const local = await res.json();
+
+        if (local.localSha === "development") {
+          setChecking(false);
+          return;
+        }
+
+        // 2. Fetch latest tag info from Docker Hub API (Public)
+        const dockerRes = await fetch(`https://hub.docker.com/v2/repositories/${local.repo}/tags/latest`);
+        const remote = await dockerRes.json();
+
+        // 3. Compare SHA/Digest
+        // Docker Hub returns images[0].digest
+        if (remote.images && remote.images[0].digest !== local.localSha) {
+          setUpdateReady(true);
+        }
+      } catch (e) {
+        console.error("Update check failed", e);
+      }
+      setChecking(false);
+    }
+
+    checkVersion();
+  }, []);
+
+  if (checking || !updateReady) return null;
+
+  return (
+    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 px-3 py-1 flex items-center gap-2 animate-pulse">
+      <ArrowUpCircle className="w-3 h-3" />
+      Update Available
+    </Badge>
+  );
+}
+
+================================================
 FILE: components/client/ClientInvoice.tsx
 ================================================
 "use client"
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Printer, CheckCircle2, PenTool } from "lucide-react";
+import { Printer, PenTool } from "lucide-react";
 
 export default function ClientInvoice({ 
   invoice, 
@@ -1485,7 +1549,6 @@ export default function ClientInvoice({
   const hst = subtotal * (invoice.tax_rate / 100);
   const total = subtotal + hst;
 
-  // Setup Canvas and Force Disable Scrolling on Touch
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas && status === 'draft') {
@@ -1495,31 +1558,23 @@ export default function ClientInvoice({
         ctx.lineCap = 'round';
         ctx.strokeStyle = '#000000';
       }
-
-      // CRITICAL MOBILE FIX: Stop the screen from scrolling while signing
-      const preventScroll = (e: TouchEvent) => e.preventDefault();
-      canvas.addEventListener('touchstart', preventScroll, { passive: false });
-      canvas.addEventListener('touchmove', preventScroll, { passive: false });
-
-      return () => {
-        canvas.removeEventListener('touchstart', preventScroll);
-        canvas.removeEventListener('touchmove', preventScroll);
-      };
     }
   }, [status]);
 
-  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDrawing.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
     draw(e);
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDrawing.current = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
     const canvas = canvasRef.current;
     if (canvas) canvas.getContext('2d')?.beginPath();
   };
 
-  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1529,13 +1584,25 @@ export default function ClientInvoice({
     setHasSignature(true);
 
     const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-    ctx.lineTo(clientX - rect.left, clientY - rect.top);
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    ctx.lineTo(x, y);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(clientX - rect.left, clientY - rect.top);
+    ctx.moveTo(x, y);
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+      setHasSignature(false);
+    }
   };
 
   const handleApprove = async () => {
@@ -1553,10 +1620,13 @@ export default function ClientInvoice({
       });
       
       if (res.ok) {
-        setStatus('approved');
+        // Reload to fetch the exact signed_at timestamp from the server
+        window.location.reload();
       } else if (res.status === 409) {
         alert("This document has already been signed or updated.");
         window.location.reload();
+      } else if (res.status === 413) {
+        alert("Signature is too large. Please clear and try a simpler signature.");
       } else {
         alert("Error saving signature. Please try again.");
       }
@@ -1579,6 +1649,12 @@ export default function ClientInvoice({
   }
 
   const invoiceNumber = `${invoice.id.toString().padStart(6, '0')}`;
+  
+  let formattedSignedDate = "";
+  if (invoice.signed_at) {
+    const isoDate = invoice.signed_at.replace(' ', 'T') + 'Z';
+    formattedSignedDate = new Date(isoDate).toLocaleString();
+  }
 
   return (
     <>
@@ -1720,23 +1796,36 @@ export default function ClientInvoice({
                     <PenTool className="w-4 h-4 text-zinc-500"/>
                     Authorization {settings.require_signature ? "(Required)" : "(Optional)"}
                   </span>
-                  {hasSignature && <button onClick={() => { canvasRef.current?.getContext('2d')?.clearRect(0,0,800,150); setHasSignature(false); }} className="text-xs text-zinc-500 hover:text-red-600 hover:underline font-semibold">Clear Pad</button>}
+                  {hasSignature && <button onClick={clearSignature} className="text-xs text-zinc-500 hover:text-red-600 hover:underline font-semibold">Clear Pad</button>}
                 </div>
-                <div className="border border-zinc-300 bg-white h-32 w-full mb-6 cursor-crosshair rounded-md overflow-hidden">
-                  {/* touch-none is critical here */}
-                  <canvas ref={canvasRef} width={800} height={150} className="w-full h-full touch-none" onMouseDown={startDrawing} onMouseUp={stopDrawing} onMouseOut={stopDrawing} onMouseMove={draw} onTouchStart={startDrawing} onTouchEnd={stopDrawing} onTouchMove={draw} />
+                <div className="border border-zinc-300 bg-white h-40 w-full mb-6 cursor-crosshair rounded-md overflow-hidden">
+                  <canvas 
+                    ref={canvasRef} 
+                    width={800} 
+                    height={160} 
+                    className="w-full h-full touch-none" 
+                    onPointerDown={startDrawing} 
+                    onPointerMove={draw} 
+                    onPointerUp={stopDrawing} 
+                    onPointerOut={stopDrawing} 
+                    onPointerCancel={stopDrawing}
+                  />
                 </div>
                 <Button onClick={handleApprove} disabled={isApproving} className="w-full bg-zinc-900 text-white hover:bg-black font-bold h-12">
                   {isApproving ? "Processing..." : "Approve & Authorize Document"}
                 </Button>
               </div>
             ) : (
-              invoice.signature_data && (
+              (invoice.signature_data || invoice.signed_at) && (
                 <div className="mt-8 pt-8 break-inside-avoid w-full">
                   <p className="font-bold text-sm uppercase tracking-wider text-zinc-500 mb-4 block">Authorized Signature</p>
-                  <div className="w-full max-w-[250px]">
-                    <img src={invoice.signature_data} alt="Client Signature" className="max-h-20 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
-                    <p className="text-xs text-zinc-400 mt-2 font-medium">Signed electronically by client.</p>
+                  <div className="w-full max-w-[300px]">
+                    {invoice.signature_data && (
+                      <img src={invoice.signature_data} alt="Client Signature" className="max-h-24 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
+                    )}
+                    <p className="text-xs text-zinc-500 mt-2 font-medium">
+                      Signed electronically by client {formattedSignedDate ? `on ${formattedSignedDate}` : ''}.
+                    </p>
                   </div>
                 </div>
               )
@@ -2399,6 +2488,7 @@ db.exec(`
     tax_rate REAL DEFAULT 13.00,
     notes TEXT,
     signature_data TEXT,
+    signed_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -2439,7 +2529,7 @@ const insertSettings = db.prepare(`
 `);
 insertSettings.run();
 
-console.log('Database initialization complete! Ready for production.');
+console.log('Database initialization complete. Ready for production.');
 
 ================================================
 FILE: eslint.config.mjs
@@ -2469,12 +2559,22 @@ FILE: lib/db.ts
 ================================================
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 
-const dbPath = path.resolve(process.cwd(), 'nepean.db');
+// If we are in production (Docker), force the path to the mounted volume
+const isProd = process.env.NODE_ENV === 'production';
+const dbDir = isProd ? '/app/data' : process.cwd();
+const dbPath = path.join(dbDir, 'nepean.db');
+
+// Ensure the directory exists in production before SQLite tries to open it
+if (isProd && !fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON'); // Claude's security fix
+db.pragma('foreign_keys = ON');
 
 export default db;
 
@@ -2503,11 +2603,22 @@ export function middleware(request: NextRequest) {
 
   // 1. CSRF Protection for API mutations
   if (request.method !== 'GET' && pathname.startsWith('/api/')) {
-    const origin = request.headers.get('origin') || '';
-    const host = request.headers.get('host') || '';
-    // Block requests that don't originate from your own domain
-    if (origin && !origin.includes(host)) {
-      return NextResponse.json({ error: 'CSRF blocked' }, { status: 403 });
+    
+    // EXCEPTION: We explicitly allow the public approval endpoint because the 
+    // unguessable token acts as its own cryptographically secure CSRF token.
+    // If we don't skip this, Cloudflare Tunnels will cause false-positive 403 blocks for your clients.
+    if (!pathname.includes('/approve')) {
+      const origin = request.headers.get('origin') || '';
+      const host = request.headers.get('host') || '';
+      const expectedOrigin = process.env.APP_ORIGIN || '';
+
+      if (origin) {
+        // If an APP_ORIGIN env var is set, use it. Otherwise, fallback to strict host checking.
+        const isValidOrigin = expectedOrigin ? origin === expectedOrigin : origin.includes(host);
+        if (!isValidOrigin) {
+          return NextResponse.json({ error: 'CSRF blocked by security middleware' }, { status: 403 });
+        }
+      }
     }
   }
 
@@ -2618,55 +2729,74 @@ export default config;
 ================================================
 FILE: README.md
 ================================================
-# ⚡ The Engine: Self-Hosted Invoice & Estimate CRM
+# The Engine: Self-Hosted Invoice & Estimate CRM
 
-A blazing-fast, highly secure, self-hosted estimation and invoicing tool designed specifically for independent contractors, freelancers, and tradesmen.
+A lightweight, high-performance, self-hosted CRM built specifically for independent contractors. Engineered with Next.js 15 (App Router), Tailwind CSS, and `better-sqlite3`.
 
-Built with **Next.js (App Router)**, **Tailwind CSS**, and **SQLite**.
+## Core Features
 
-## 🚀 Features
+* **State-Shifting Documents:** Generates a single, cryptographically secure URL for every estimate. This unified link acts as an interactive estimate, a signing portal, and finally a paid receipt.
+* **Service Library Builder:** Construct estimates using a predefined catalog of services. The system automatically routes flat-rate prices or calculates labor and material costs.
+* **Native Digital Authorization:** The client portal features an HTML5 Canvas utilizing the Pointer Events API to ensure precise, scroll-locked signature capture on mobile devices. Signatures and UTC timestamps are encoded locally.
+* **Gatekeeper Configuration:** An initial setup process establishes business identity (Taxation Rates, Payment Terms). A built-in dashboard tracks YTD revenue against the Canadian $30,000 GST/HST threshold.
 
-* **Zero-Friction Estimator:** A "Tap-to-Build" interface designed for mobile use in the field. Build complex estimates without typing a single line item.
-* **State-Shifting URLs:** Clients receive a secure, cryptographic "Magic Link". The same link seamlessly shifts from an interactive Estimate to an Approved WIP, to a final Paid Receipt. Zero email chains.
-* **Digital Signatures:** Native HTML5 canvas allows clients to legally sign estimates directly on their phone screens.
-* **The Command Ledger:** Track YTD revenue, monitor Canadian CRA tax thresholds (GST/HST), and manage all jobs from a pristine Dark Mode dashboard.
-* **Zero-Config Deployment:** Uses local SQLite. No complex Docker networks or external database connections required.
+## Security Posture
 
-## 🛠️ Tech Stack
+* **Database Constraints:** Utilizes `better-sqlite3` with `PRAGMA journal_mode = WAL` and strict Foreign Key enforcement.
+* **CSRF Protection:** Integrated middleware verifies `Origin` and `Host` headers for administrative API mutations.
+* **Rate Limiting:** Public invoice endpoints are protected by an in-memory IP-based rate limiter to mitigate token brute-forcing.
+* **Idempotency Locks:** Signature endpoints validate payload integrity (Base64 format, 2.8MB size cap) and enforce strict SQL state-checks to prevent race conditions.
 
-* **Frontend:** Next.js 15+, React 19, Tailwind CSS, Shadcn UI
-* **Backend:** Next.js API Routes (Serverless architecture)
-* **Database:** `better-sqlite3` (Lighting fast, local WAL mode)
-* **Icons:** Lucide React
+## Local Development Setup
 
-## 📦 Installation & Setup
-
-1. **Clone the repository:**
-   \`\`\`bash
-   git clone https://github.com/yourusername/engine.git
-   cd engine
-   \`\`\`
-
-2. **Install dependencies:**
+1. **Install Dependencies**
    \`\`\`bash
    npm install
    \`\`\`
 
-3. **Initialize the Database:**
+2. **Initialize Database**
    \`\`\`bash
    npm run setup
    \`\`\`
 
-4. **Start the server:**
+3. **Start Development Server**
    \`\`\`bash
    npm run dev
    \`\`\`
 
-5. **Initialize your Business:**
-   Open `http://localhost:3000` in your browser. You will be automatically redirected to the Setup Wizard to configure your business name and local tax rates.
+Navigate to `http://localhost:3000`. You will be directed to the Configuration Gatekeeper.
 
-## 🛡️ Security Note
-This application stores your financial data in a local `nepean.db` file. The `.gitignore` prevents this file from being pushed to public repositories. Ensure your server environment backs up this file regularly.
+## Docker Production Deployment
+
+This application is designed for containerized deployment on Linux environments. The `Dockerfile` utilizes Alpine Linux, a pinned Node.js runtime, and enforces a non-root system user.
+
+### 1. Preparation
+Ensure the host directory for the database volume exists and has appropriate permissions (UID 1001 matches the container's `nextjs` user).
+
+\`\`\`bash
+mkdir -p ./server_data
+sudo chown -R 1001:1001 ./server_data
+\`\`\`
+
+### 2. Build and Deploy
+\`\`\`bash
+docker compose up -d --build
+\`\`\`
+
+### Reverse Proxy Considerations (Cloudflare Tunnels)
+If exposing this container via a Cloudflare Tunnel, the `Host` header will not match the client `Origin`, causing the CSRF middleware to reject traffic. To resolve this, pass your expected public URL to the container environment in `docker-compose.yml`:
+
+\`\`\`yaml
+environment:
+  - APP_ORIGIN=https://invoices.yourdomain.com
+\`\`\`
+
+### Backup Strategy
+As SQLite stores data on a single volume, configure a host-level cron job to routinely back up the database directory:
+
+\`\`\`bash
+0 2 * * * root sqlite3 /path/to/server_data/nepean.db ".backup /backups/nepean-$(date +\\%F).db"
+\`\`\`
 
 ================================================
 FILE: tsconfig.json

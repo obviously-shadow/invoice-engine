@@ -1,49 +1,68 @@
-# ⚡ The Engine: Self-Hosted Invoice & Estimate CRM
+# The Engine: Self-Hosted Invoice & Estimate CRM
 
-A blazing-fast, highly secure, self-hosted estimation and invoicing tool designed specifically for independent contractors, freelancers, and tradesmen.
+A lightweight, high-performance, self-hosted CRM built specifically for independent contractors. Engineered with Next.js 15 (App Router), Tailwind CSS, and `better-sqlite3`.
 
-Built with **Next.js (App Router)**, **Tailwind CSS**, and **SQLite**.
+## Core Features
 
-## 🚀 Features
+* **State-Shifting Documents:** Generates a single, cryptographically secure URL for every estimate. This unified link acts as an interactive estimate, a signing portal, and finally a paid receipt.
+* **Service Library Builder:** Construct estimates using a predefined catalog of services. The system automatically routes flat-rate prices or calculates labor and material costs.
+* **Native Digital Authorization:** The client portal features an HTML5 Canvas utilizing the Pointer Events API to ensure precise, scroll-locked signature capture on mobile devices. Signatures and UTC timestamps are encoded locally.
+* **Gatekeeper Configuration:** An initial setup process establishes business identity (Taxation Rates, Payment Terms). A built-in dashboard tracks YTD revenue against the Canadian $30,000 GST/HST threshold.
 
-* **Zero-Friction Estimator:** A "Tap-to-Build" interface designed for mobile use in the field. Build complex estimates without typing a single line item.
-* **State-Shifting URLs:** Clients receive a secure, cryptographic "Magic Link". The same link seamlessly shifts from an interactive Estimate to an Approved WIP, to a final Paid Receipt. Zero email chains.
-* **Digital Signatures:** Native HTML5 canvas allows clients to legally sign estimates directly on their phone screens.
-* **The Command Ledger:** Track YTD revenue, monitor Canadian CRA tax thresholds (GST/HST), and manage all jobs from a pristine Dark Mode dashboard.
-* **Zero-Config Deployment:** Uses local SQLite. No complex Docker networks or external database connections required.
+## Security Posture
 
-## 🛠️ Tech Stack
+* **Database Constraints:** Utilizes `better-sqlite3` with `PRAGMA journal_mode = WAL` and strict Foreign Key enforcement.
+* **CSRF Protection:** Integrated middleware verifies `Origin` and `Host` headers for administrative API mutations.
+* **Rate Limiting:** Public invoice endpoints are protected by an in-memory IP-based rate limiter to mitigate token brute-forcing.
+* **Idempotency Locks:** Signature endpoints validate payload integrity (Base64 format, 2.8MB size cap) and enforce strict SQL state-checks to prevent race conditions.
 
-* **Frontend:** Next.js 15+, React 19, Tailwind CSS, Shadcn UI
-* **Backend:** Next.js API Routes (Serverless architecture)
-* **Database:** `better-sqlite3` (Lighting fast, local WAL mode)
-* **Icons:** Lucide React
+## Local Development Setup
 
-## 📦 Installation & Setup
-
-1. **Clone the repository:**
-   \`\`\`bash
-   git clone https://github.com/yourusername/engine.git
-   cd engine
-   \`\`\`
-
-2. **Install dependencies:**
+1. **Install Dependencies**
    \`\`\`bash
    npm install
    \`\`\`
 
-3. **Initialize the Database:**
+2. **Initialize Database**
    \`\`\`bash
    npm run setup
    \`\`\`
 
-4. **Start the server:**
+3. **Start Development Server**
    \`\`\`bash
    npm run dev
    \`\`\`
 
-5. **Initialize your Business:**
-   Open `http://localhost:3000` in your browser. You will be automatically redirected to the Setup Wizard to configure your business name and local tax rates.
+Navigate to `http://localhost:3000`. You will be directed to the Configuration Gatekeeper.
 
-## 🛡️ Security Note
-This application stores your financial data in a local `nepean.db` file. The `.gitignore` prevents this file from being pushed to public repositories. Ensure your server environment backs up this file regularly.
+## Docker Production Deployment
+
+This application is designed for containerized deployment on Linux environments. The `Dockerfile` utilizes Alpine Linux, a pinned Node.js runtime, and enforces a non-root system user.
+
+### 1. Preparation
+Ensure the host directory for the database volume exists and has appropriate permissions (UID 1001 matches the container's `nextjs` user).
+
+\`\`\`bash
+mkdir -p ./server_data
+sudo chown -R 1001:1001 ./server_data
+\`\`\`
+
+### 2. Build and Deploy
+\`\`\`bash
+docker compose up -d --build
+\`\`\`
+
+### Reverse Proxy Considerations (Cloudflare Tunnels)
+If exposing this container via a Cloudflare Tunnel, the `Host` header will not match the client `Origin`, causing the CSRF middleware to reject traffic. To resolve this, pass your expected public URL to the container environment in `docker-compose.yml`:
+
+\`\`\`yaml
+environment:
+  - APP_ORIGIN=https://invoices.yourdomain.com
+\`\`\`
+
+### Backup Strategy
+As SQLite stores data on a single volume, configure a host-level cron job to routinely back up the database directory:
+
+\`\`\`bash
+0 2 * * * root sqlite3 /path/to/server_data/nepean.db ".backup /backups/nepean-$(date +\\%F).db"
+\`\`\`
