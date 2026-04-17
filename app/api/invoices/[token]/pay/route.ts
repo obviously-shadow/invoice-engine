@@ -8,8 +8,8 @@ export async function POST(
   try {
     const resolvedParams = await params;
     
-    // Update the status from 'draft' to 'approved'
-    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved' WHERE token = ?");
+    // Update the status to 'paid'
+    const updateStmt = db.prepare("UPDATE invoices SET status = 'paid' WHERE token = ?");
     const info = updateStmt.run(resolvedParams.token);
 
     if (info.changes === 0) {
@@ -18,7 +18,7 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to approve invoice:", error);
+    console.error("Failed to mark paid:", error);
     return NextResponse.json({ error: 'Failed to update status' }, { status: 500 });
   }
 }

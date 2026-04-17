@@ -5,35 +5,36 @@ import crypto from 'crypto';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { items, tax_rate } = body;
+    const { client_name, client_email, client_address, items, tax_rate, notes } = body;
 
-    // 1. Generate the massive, un-guessable token for the URL
     const token = crypto.randomBytes(16).toString('hex');
 
-    // 2. Prepare the database insert statements
-    const insertInvoice = db.prepare('INSERT INTO invoices (token, status, tax_rate) VALUES (?, ?, ?)');
-    const insertItem = db.prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price) VALUES (?, ?, ?, ?)');
+    const insertInvoice = db.prepare('INSERT INTO invoices (client_name, client_email, client_address, token, status, tax_rate, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertItem = db.prepare('INSERT INTO invoice_items (invoice_id, title, description, qty, rate, total) VALUES (?, ?, ?, ?, ?, ?)');
 
-    // 3. Use a transaction so if one piece fails, the whole thing cancels safely
     const transaction = db.transaction(() => {
-      const info = insertInvoice.run(token, 'draft', tax_rate);
+      const info = insertInvoice.run(client_name || 'Valued Client', client_email, client_address, token, 'draft', tax_rate, notes || '');
       const invoiceId = info.lastInsertRowid;
 
       for (const item of items) {
-        const description = `${item.title} (${item.default_labor_hours}h labor, parts)`;
-        const unitPrice = (item.default_labor_hours * item.hourly_rate) + item.default_material_cost;
-        insertItem.run(invoiceId, description, 1, unitPrice);
+        if (item.isCustom) {
+          insertItem.run(invoiceId, item.title, item.description || '', 1, item.price, item.price);
+        } else {
+          if (item.default_labor_hours > 0) {
+            const laborTotal = item.default_labor_hours * item.hourly_rate;
+            insertItem.run(invoiceId, item.title, 'Labor', item.default_labor_hours, item.hourly_rate, laborTotal);
+          }
+          if (item.default_material_cost > 0) {
+            insertItem.run(invoiceId, `${item.title} (Materials)`, 'Parts & Supplies', 1, item.default_material_cost, item.default_material_cost);
+          }
+        }
       }
     });
 
-    // Execute the database save
     transaction();
-
-    // 4. Send the token back to the frontend
     return NextResponse.json({ success: true, token });
 
   } catch (error) {
-    console.error("Failed to generate invoice:", error);
     return NextResponse.json({ error: 'Failed to generate invoice' }, { status: 500 });
   }
 }

@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ⚡ The Engine: Self-Hosted Invoice & Estimate CRM
 
-## Getting Started
+A blazing-fast, highly secure, self-hosted estimation and invoicing tool designed specifically for independent contractors, freelancers, and tradesmen.
 
-First, run the development server:
+Built with **Next.js (App Router)**, **Tailwind CSS**, and **SQLite**.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🚀 Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+* **Zero-Friction Estimator:** A "Tap-to-Build" interface designed for mobile use in the field. Build complex estimates without typing a single line item.
+* **State-Shifting URLs:** Clients receive a secure, cryptographic "Magic Link". The same link seamlessly shifts from an interactive Estimate to an Approved WIP, to a final Paid Receipt. Zero email chains.
+* **Digital Signatures:** Native HTML5 canvas allows clients to legally sign estimates directly on their phone screens.
+* **The Command Ledger:** Track YTD revenue, monitor Canadian CRA tax thresholds (GST/HST), and manage all jobs from a pristine Dark Mode dashboard.
+* **Zero-Config Deployment:** Uses local SQLite. No complex Docker networks or external database connections required.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🛠️ Tech Stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+* **Frontend:** Next.js 15+, React 19, Tailwind CSS, Shadcn UI
+* **Backend:** Next.js API Routes (Serverless architecture)
+* **Database:** `better-sqlite3` (Lighting fast, local WAL mode)
+* **Icons:** Lucide React
 
-## Learn More
+## 📦 Installation & Setup
 
-To learn more about Next.js, take a look at the following resources:
+1. **Clone the repository:**
+   \`\`\`bash
+   git clone https://github.com/yourusername/engine.git
+   cd engine
+   \`\`\`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+2. **Install dependencies:**
+   \`\`\`bash
+   npm install
+   \`\`\`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. **Initialize the Database:**
+   \`\`\`bash
+   npm run setup
+   \`\`\`
 
-## Deploy on Vercel
+4. **Start the server:**
+   \`\`\`bash
+   npm run dev
+   \`\`\`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+5. **Initialize your Business:**
+   Open `http://localhost:3000` in your browser. You will be automatically redirected to the Setup Wizard to configure your business name and local tax rates.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🛡️ Security Note
+This application stores your financial data in a local `nepean.db` file. The `.gitignore` prevents this file from being pushed to public repositories. Ensure your server environment backs up this file regularly.

@@ -5,24 +5,42 @@ nepean-invoice-engine/
 ├── AGENTS.md
 ├── app
 │   ├── admin
-│   │   └── page.tsx
+│   │   ├── builder
+│   │   │   └── page.tsx
+│   │   ├── layout.tsx
+│   │   ├── page.tsx
+│   │   └── settings
+│   │       └── page.tsx
 │   ├── api
-│   │   └── invoices
-│   │       ├── route.ts
-│   │       └── [token]
-│   │           ├── approve
-│   │           └── route.ts
+│   │   ├── invoices
+│   │   │   ├── route.ts
+│   │   │   └── [token]
+│   │   │       ├── approve
+│   │   │       │   └── route.ts
+│   │   │       └── pay
+│   │   │           └── route.ts
+│   │   ├── settings
+│   │   │   └── route.ts
+│   │   ├── setup
+│   │   │   └── route.ts
+│   │   └── templates
+│   │       └── route.ts
 │   ├── favicon.ico
 │   ├── globals.css
 │   ├── layout.tsx
 │   ├── p
 │   │   └── [token]
 │   │       └── page.tsx
-│   └── page.tsx
+│   ├── page.tsx
+│   └── setup
+│       └── page.tsx
 ├── CLAUDE.md
 ├── components
 │   ├── admin
-│   │   └── InvoiceBuilder.tsx
+│   │   ├── ClientActionButtons.tsx
+│   │   ├── ClientCopyButton.tsx
+│   │   ├── InvoiceBuilder.tsx
+│   │   └── SettingsForm.tsx
 │   ├── client
 │   │   └── ClientInvoice.tsx
 │   └── ui
@@ -35,8 +53,7 @@ nepean-invoice-engine/
 │       └── table.tsx
 ├── components.json
 ├── db
-│   ├── seed.mjs
-│   └── setup.mjs
+│   └── init.mjs
 ├── eslint.config.mjs
 ├── lib
 │   ├── db.ts
@@ -66,24 +83,226 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 
 ================================================
-FILE: app/admin/page.tsx
+FILE: app/admin/builder/page.tsx
 ================================================
-// app/admin/page.tsx
 import db from "@/lib/db";
 import InvoiceBuilder from "@/components/admin/InvoiceBuilder";
 
-// 1. Fetch data securely on the server
-function getTemplates() {
-  const stmt = db.prepare('SELECT * FROM job_templates');
-  return stmt.all();
+function getData() {
+  const templates = db.prepare('SELECT * FROM job_templates').all();
+  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  return { templates, settings };
 }
 
-export default function AdminPage() {
-  // 2. Grab the live data
-  const templates = getTemplates();
+export default function BuilderPage() {
+  const data = getData();
+  return <InvoiceBuilder templates={data.templates} settings={data.settings} />;
+}
 
-  // 3. Pass it to the interactive Client UI
-  return <InvoiceBuilder templates={templates} />;
+================================================
+FILE: app/admin/layout.tsx
+================================================
+import db from "@/lib/db";
+import { redirect } from "next/navigation";
+
+// This layout wraps EVERY page inside the /admin folder. 
+// It runs securely on the server before the page even loads.
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  
+  // 1. Check the database
+  const settings = db.prepare('SELECT is_setup FROM settings WHERE id = 1').get() as any;
+
+  // 2. If the row is missing or is_setup is 0, kick them to the setup wizard
+  if (!settings || settings.is_setup === 0) {
+    redirect('/setup');
+  }
+
+  // 3. Otherwise, let them into the admin area
+  return <>{children}</>;
+}
+
+================================================
+FILE: app/admin/page.tsx
+================================================
+import db from "@/lib/db";
+import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import ClientActionButtons from "@/components/admin/ClientActionButtons";
+import { Settings, Plus, FileText, AlertTriangle } from "lucide-react";
+
+export const dynamic = 'force-dynamic'; // Claude's Fix
+
+function getDashboardData() {
+  const invoices = db.prepare(`
+    SELECT i.id, i.token, i.status, i.client_name, i.created_at, 
+           SUM(items.total) as subtotal
+    FROM invoices i
+    LEFT JOIN invoice_items items ON i.id = items.invoice_id
+    GROUP BY i.id
+    ORDER BY i.created_at DESC
+  `).all();
+
+  const revenueRow = db.prepare(`
+    SELECT SUM(items.total) as total 
+    FROM invoices i 
+    JOIN invoice_items items ON i.id = items.invoice_id 
+    WHERE i.status = 'paid'
+  `).get() as any;
+
+  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
+  return { invoices, ytdRevenue: revenueRow.total || 0, settings };
+}
+
+export default function AdminLedger() {
+  const data = getDashboardData();
+  const threshold = 30000;
+  const percentToThreshold = (data.ytdRevenue / threshold) * 100;
+  const isWarning = percentToThreshold > 80;
+
+  return (
+    <div className="min-h-screen bg-black text-zinc-50 p-4 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+        <header className="flex flex-col md:flex-row justify-between md:items-end gap-6">
+          <div>
+            <h1 className="text-4xl font-bold tracking-tighter text-white mb-1">Command Ledger</h1>
+            <p className="text-zinc-400 text-lg">{data.settings.company_name}</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/admin/settings">
+              <Button variant="outline" className="bg-zinc-900 border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-800 h-11 px-5">
+                <Settings className="w-4 h-4 mr-2" /> Settings
+              </Button>
+            </Link>
+            <Link href="/admin/builder">
+              <Button className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold h-11 px-6 shadow-lg shadow-emerald-900/20">
+                <Plus className="w-5 h-5 mr-2" /> New Estimate
+              </Button>
+            </Link>
+          </div>
+        </header>
+
+        <Card className="bg-zinc-900/50 border-white/5 shadow-xl backdrop-blur-sm">
+          <CardContent className="p-6">
+            <div className="flex justify-between items-end mb-3">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">YTD Revenue (Paid, Pre-Tax)</h3>
+                <div className="text-3xl font-mono text-white tracking-tight">${data.ytdRevenue.toLocaleString()}</div>
+              </div>
+              <span className="text-sm font-mono text-zinc-500">Target: ${threshold.toLocaleString()}</span>
+            </div>
+            <div className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/5">
+              <div 
+                className={`h-full ${isWarning ? 'bg-amber-500' : 'bg-emerald-500'} transition-all duration-1000 ease-out`} 
+                style={{ width: `${Math.min(percentToThreshold, 100)}%` }}
+              />
+            </div>
+            {isWarning && (
+              <p className="flex items-center gap-2 text-sm text-amber-400 mt-3 font-medium">
+                <AlertTriangle className="w-4 h-4" /> Approaching CRA GST/HST registration threshold.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-900 border-white/10 shadow-2xl overflow-hidden">
+          <CardHeader className="border-b border-white/5 bg-black/20 pb-5">
+            <CardTitle className="text-xl text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-zinc-400" /> Recent Documents
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/5 hover:bg-transparent bg-black/40">
+                  <TableHead className="text-zinc-500 font-semibold h-12">Date Created</TableHead>
+                  <TableHead className="text-zinc-500 font-semibold h-12">Client</TableHead>
+                  <TableHead className="text-zinc-500 font-semibold h-12">Status</TableHead>
+                  <TableHead className="text-right text-zinc-500 font-semibold h-12">Amount (Pre-Tax)</TableHead>
+                  <TableHead className="text-right text-zinc-500 font-semibold h-12 pr-6">Client Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.invoices.map((invoice: any) => (
+                  <TableRow key={invoice.id} className="border-white/5 hover:bg-white/5 transition-colors">
+                    <TableCell className="font-medium text-zinc-300 py-5 pl-4">
+                      {new Date(invoice.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="font-medium text-zinc-200">
+                      {invoice.client_name}
+                    </TableCell>
+                    <TableCell>
+                      <Badge 
+                        variant="outline" 
+                        className={`px-2.5 py-1 text-xs font-bold tracking-wide uppercase ${
+                          invoice.status === 'approved' 
+                            ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' :
+                          invoice.status === 'paid'
+                            ? 'border-zinc-700 text-zinc-300 bg-zinc-800/50'
+                            : 'border-amber-500/30 text-amber-400 bg-amber-500/10'
+                        }`}
+                      >
+                        {invoice.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right text-zinc-100 font-mono text-base">
+                      ${invoice.subtotal ? invoice.subtotal.toFixed(2) : "0.00"}
+                    </TableCell>
+                    <TableCell className="text-right pr-4">
+                      <ClientActionButtons token={invoice.token} status={invoice.status} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {data.invoices.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-16 text-zinc-500">
+                      <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                      <p className="text-lg">No documents generated yet.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+================================================
+FILE: app/admin/settings/page.tsx
+================================================
+import db from "@/lib/db";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import SettingsForm from "@/components/admin/SettingsForm";
+import { ArrowLeft } from "lucide-react";
+
+export default function SettingsPage() {
+  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  const templates = db.prepare('SELECT * FROM job_templates').all();
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-50 p-4 md:p-8 font-sans">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <header className="flex justify-between items-end">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-white mb-1">Settings</h1>
+          </div>
+          <Link href="/admin">
+            <Button variant="ghost" className="text-zinc-400 hover:text-white hover:bg-white/5 h-10 px-4">
+              <ArrowLeft className="w-4 h-4 mr-2" /> Back
+            </Button>
+          </Link>
+        </header>
+        
+        <SettingsForm initialSettings={settings} initialTemplates={templates} />
+      </div>
+    </div>
+  );
 }
 
 ================================================
@@ -96,41 +315,71 @@ import crypto from 'crypto';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { items, tax_rate } = body;
+    const { client_name, client_email, client_address, items, tax_rate, notes } = body;
 
-    // 1. Generate the massive, un-guessable token for the URL
     const token = crypto.randomBytes(16).toString('hex');
 
-    // 2. Prepare the database insert statements
-    const insertInvoice = db.prepare('INSERT INTO invoices (token, status, tax_rate) VALUES (?, ?, ?)');
-    const insertItem = db.prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price) VALUES (?, ?, ?, ?)');
+    const insertInvoice = db.prepare('INSERT INTO invoices (client_name, client_email, client_address, token, status, tax_rate, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertItem = db.prepare('INSERT INTO invoice_items (invoice_id, title, description, qty, rate, total) VALUES (?, ?, ?, ?, ?, ?)');
 
-    // 3. Use a transaction so if one piece fails, the whole thing cancels safely
     const transaction = db.transaction(() => {
-      const info = insertInvoice.run(token, 'draft', tax_rate);
+      const info = insertInvoice.run(client_name || 'Valued Client', client_email, client_address, token, 'draft', tax_rate, notes || '');
       const invoiceId = info.lastInsertRowid;
 
       for (const item of items) {
-        const description = `${item.title} (${item.default_labor_hours}h labor, parts)`;
-        const unitPrice = (item.default_labor_hours * item.hourly_rate) + item.default_material_cost;
-        insertItem.run(invoiceId, description, 1, unitPrice);
+        if (item.isCustom) {
+          insertItem.run(invoiceId, item.title, item.description || '', 1, item.price, item.price);
+        } else {
+          if (item.default_labor_hours > 0) {
+            const laborTotal = item.default_labor_hours * item.hourly_rate;
+            insertItem.run(invoiceId, item.title, 'Labor', item.default_labor_hours, item.hourly_rate, laborTotal);
+          }
+          if (item.default_material_cost > 0) {
+            insertItem.run(invoiceId, `${item.title} (Materials)`, 'Parts & Supplies', 1, item.default_material_cost, item.default_material_cost);
+          }
+        }
       }
     });
 
-    // Execute the database save
     transaction();
-
-    // 4. Send the token back to the frontend
     return NextResponse.json({ success: true, token });
 
   } catch (error) {
-    console.error("Failed to generate invoice:", error);
     return NextResponse.json({ error: 'Failed to generate invoice' }, { status: 500 });
   }
 }
 
 ================================================
-FILE: app/api/invoices/[token]/route.ts
+FILE: app/api/invoices/[token]/approve/route.ts
+================================================
+import { NextResponse } from 'next/server';
+import db from '@/lib/db';
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ token: string }> }
+) {
+  try {
+    const resolvedParams = await params;
+    const body = await request.json();
+    const { signature } = body;
+    
+    // Security: Only update if it is currently a draft (Idempotency)
+    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved', signature_data = ? WHERE token = ? AND status = 'draft'");
+    const info = updateStmt.run(signature, resolvedParams.token);
+
+    if (info.changes === 0) {
+      return NextResponse.json({ error: 'Invoice not found or already approved' }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to update status' }, { status: 500 });
+  }
+}
+
+================================================
+FILE: app/api/invoices/[token]/pay/route.ts
 ================================================
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
@@ -142,8 +391,8 @@ export async function POST(
   try {
     const resolvedParams = await params;
     
-    // Update the status from 'draft' to 'approved'
-    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved' WHERE token = ?");
+    // Update the status to 'paid'
+    const updateStmt = db.prepare("UPDATE invoices SET status = 'paid' WHERE token = ?");
     const info = updateStmt.run(resolvedParams.token);
 
     if (info.changes === 0) {
@@ -152,8 +401,104 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to approve invoice:", error);
+    console.error("Failed to mark paid:", error);
     return NextResponse.json({ error: 'Failed to update status' }, { status: 500 });
+  }
+}
+
+================================================
+FILE: app/api/settings/route.ts
+================================================
+import { NextResponse } from 'next/server';
+import db from '@/lib/db';
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    
+    const updateStmt = db.prepare(`
+      UPDATE settings 
+      SET company_name = ?, business_number = ?, business_phone = ?, 
+          business_email = ?, business_website = ?, business_address = ?, 
+          tax_rate = ?, payment_terms = ?, require_signature = ? 
+      WHERE id = 1
+    `);
+    
+    updateStmt.run(
+      body.company_name, body.business_number, body.business_phone, 
+      body.business_email, body.business_website, body.business_address, 
+      body.tax_rate, body.payment_terms, body.require_signature ? 1 : 0
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
+  }
+}
+
+================================================
+FILE: app/api/setup/route.ts
+================================================
+import { NextResponse } from 'next/server';
+import db from '@/lib/db';
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    
+    const updateStmt = db.prepare(`
+      UPDATE settings 
+      SET company_name = ?, business_number = ?, business_phone = ?, 
+          business_email = ?, business_website = ?, business_address = ?, 
+          tax_rate = ?, payment_terms = ?, require_signature = ?, is_setup = 1 
+      WHERE id = 1
+    `);
+    
+    updateStmt.run(
+      body.company_name, body.business_number, body.business_phone, 
+      body.business_email, body.business_website, body.business_address, 
+      body.tax_rate, body.payment_terms, body.require_signature ? 1 : 0
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to complete setup' }, { status: 500 });
+  }
+}
+
+================================================
+FILE: app/api/templates/route.ts
+================================================
+import { NextResponse } from 'next/server';
+import db from '@/lib/db';
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { title, description, default_labor_hours, default_material_cost, hourly_rate } = body;
+    
+    const insert = db.prepare('INSERT INTO job_templates (title, description, default_labor_hours, default_material_cost, hourly_rate) VALUES (?, ?, ?, ?, ?)');
+    insert.run(title, description, default_labor_hours, default_material_cost, hourly_rate);
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to save template' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    
+    if (id) {
+      const del = db.prepare('DELETE FROM job_templates WHERE id = ?');
+      del.run(id);
+    }
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to delete template' }, { status: 500 });
   }
 }
 
@@ -309,8 +654,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Create Next App",
-  description: "Generated by create next app",
+  title: "The Engine | Command Center",
+  description: "Self-hosted invoice and estimation CRM.",
 };
 
 export default function RootLayout({
@@ -323,11 +668,13 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      {/* Enforce Geist sans-serif, antialiasing, and slightly tighter letter spacing globally */}
+      <body className="min-h-full flex flex-col font-sans tracking-tight text-zinc-950 bg-zinc-950 selection:bg-emerald-500/30">
+        {children}
+      </body>
     </html>
   );
 }
-
 
 ================================================
 FILE: app/p/[token]/page.tsx
@@ -336,32 +683,31 @@ import db from "@/lib/db";
 import ClientInvoice from "@/components/client/ClientInvoice";
 import { notFound } from "next/navigation";
 
-// 1. Fetch the invoice securely based on the URL token
+export const dynamic = 'force-dynamic'; // Claude's Fix
+
 function getInvoiceData(token: string) {
   const invoice = db.prepare('SELECT * FROM invoices WHERE token = ?').get(token);
   if (!invoice) return null;
 
   const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ?').all(invoice.id);
-  return { invoice, items };
+  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  
+  return { invoice, items, settings };
 }
 
-// 2. Next.js App Router dynamic page
 export default async function InvoicePage({ params }: { params: Promise<{ token: string }> }) {
   const resolvedParams = await params;
-  const data = getInvoiceData(resolvedParams.token);
+  const data = getInvoiceData(resolvedParams.token) as any;
 
-  // If someone types a random token, throw a 404 page
-  if (!data) {
+  if (!data || !data.invoice) {
     notFound();
   }
 
-  // Pass data to the interactive client component.
-  // We hardcode the name for now, but this will eventually come from a 'settings' DB table.
   return (
     <ClientInvoice 
       invoice={data.invoice} 
       items={data.items} 
-      companyName="Nepean Handyman Services" 
+      settings={data.settings} 
     />
   );
 }
@@ -369,11 +715,165 @@ export default async function InvoicePage({ params }: { params: Promise<{ token:
 ================================================
 FILE: app/page.tsx
 ================================================
+import { redirect } from "next/navigation";
+
 export default function Home() {
+  // We don't need a landing page. Send them straight into the software.
+  redirect('/admin');
+}
+
+================================================
+FILE: app/setup/page.tsx
+================================================
+"use client";
+
+import { useState } from "react";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useRouter } from "next/navigation";
+import { Building2, Percent, ShieldCheck, FileText } from "lucide-react";
+
+export default function SetupWizard() {
+  const [companyName, setCompanyName] = useState("");
+  const [businessNumber, setBusinessNumber] = useState("");
+  const [taxRate, setTaxRate] = useState("13.0");
+  const [paymentTerms, setPaymentTerms] = useState("Due on receipt");
+  const [requireSignature, setRequireSignature] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const router = useRouter();
+
+  const handleCompleteSetup = async () => {
+    if (!companyName.trim()) {
+      alert("Please enter a business name.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          company_name: companyName, 
+          business_number: businessNumber,
+          tax_rate: parseFloat(taxRate), 
+          payment_terms: paymentTerms,
+          require_signature: requireSignature 
+        })
+      });
+      
+      if (res.ok) {
+        router.push('/admin');
+      }
+    } catch (error) {
+      console.error(error);
+    }
+    setIsSaving(false);
+  };
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-white">
-      <h1>Nepean Handyman Services - Invoice Engine</h1>
-    </main>
+    <div className="min-h-screen bg-zinc-950 text-zinc-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl relative z-10 my-12">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">System Configuration</h1>
+          <p className="text-zinc-400">Set up your business profile for client documents.</p>
+        </div>
+
+        <Card className="bg-zinc-900 border-zinc-800 text-white shadow-2xl">
+          <CardHeader className="border-b border-zinc-800 pb-6">
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-zinc-400" /> Business Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6 pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="companyName" className="text-zinc-300">Business Name</Label>
+                <Input 
+                  id="companyName" 
+                  value={companyName} 
+                  onChange={(e) => setCompanyName(e.target.value)} 
+                  className="bg-zinc-950 border-zinc-800 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="businessNumber" className="text-zinc-300">Tax/Business Number (Optional)</Label>
+                <Input 
+                  id="businessNumber" 
+                  placeholder="e.g. RT-123456"
+                  value={businessNumber} 
+                  onChange={(e) => setBusinessNumber(e.target.value)} 
+                  className="bg-zinc-950 border-zinc-800 text-white"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="taxRate" className="text-zinc-300 flex items-center gap-2">
+                  <Percent className="w-4 h-4" /> Default Tax Rate
+                </Label>
+                <Input 
+                  id="taxRate" 
+                  type="number"
+                  step="0.1"
+                  value={taxRate} 
+                  onChange={(e) => setTaxRate(e.target.value)} 
+                  className="bg-zinc-950 border-zinc-800 text-white font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paymentTerms" className="text-zinc-300 flex items-center gap-2">
+                  <FileText className="w-4 h-4" /> Payment Terms
+                </Label>
+                <Input 
+                  id="paymentTerms" 
+                  placeholder="e.g. Net 15, Due on Receipt"
+                  value={paymentTerms} 
+                  onChange={(e) => setPaymentTerms(e.target.value)} 
+                  className="bg-zinc-950 border-zinc-800 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg flex items-center justify-between">
+              <div className="pr-4">
+                <Label className="text-white font-bold text-base flex items-center gap-2 mb-1">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> Client Signatures
+                </Label>
+                <p className="text-sm text-zinc-500 leading-relaxed">Require a digital signature before an estimate can be approved.</p>
+              </div>
+              <div className="flex items-center bg-zinc-900 p-1 rounded-lg border border-zinc-800 shrink-0">
+                <button 
+                  onClick={() => setRequireSignature(false)}
+                  className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${!requireSignature ? 'bg-zinc-800 text-white' : 'bg-transparent text-zinc-500'}`}
+                >
+                  Optional
+                </button>
+                <button 
+                  onClick={() => setRequireSignature(true)}
+                  className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${requireSignature ? 'bg-emerald-600 text-white' : 'bg-transparent text-zinc-500'}`}
+                >
+                  Required
+                </button>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="border-t border-zinc-800 pt-6">
+            <Button 
+              onClick={handleCompleteSetup} 
+              disabled={isSaving || !companyName.trim()}
+              className="w-full bg-white text-black hover:bg-zinc-200 h-12 font-bold"
+            >
+              {isSaving ? "Saving..." : "Complete Setup"}
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    </div>
   );
 }
 
@@ -384,6 +884,93 @@ FILE: CLAUDE.md
 
 
 ================================================
+FILE: components/admin/ClientActionButtons.tsx
+================================================
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { Copy, Check, CheckCircle2 } from "lucide-react";
+
+export default function ClientActionButtons({ token, status }: { token: string, status: string }) {
+  const [copied, setCopied] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
+  const router = useRouter();
+
+  const handleCopy = () => {
+    const url = `${window.location.origin}/p/${token}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleMarkPaid = async () => {
+    setIsPaying(true);
+    try {
+      await fetch(`/api/invoices/${token}/pay`, { method: 'POST' });
+      router.refresh(); 
+    } catch (error) {
+      console.error(error);
+    }
+    setIsPaying(false);
+  };
+
+  return (
+    <div className="flex justify-end gap-3 items-center">
+      <Button 
+        variant="ghost" 
+        onClick={handleCopy}
+        className={`h-8 px-3 text-xs font-medium transition-colors ${copied ? "text-emerald-400 bg-emerald-400/10 hover:bg-emerald-400/20" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+      >
+        {copied ? <Check className="w-3.5 h-3.5 mr-1.5" /> : <Copy className="w-3.5 h-3.5 mr-1.5" />}
+        {copied ? "Copied" : "Copy Link"}
+      </Button>
+
+      {status === 'approved' && (
+        <Button 
+          onClick={handleMarkPaid}
+          disabled={isPaying}
+          className="bg-emerald-600 hover:bg-emerald-500 text-white h-8 px-4 text-xs font-bold shadow-sm shadow-emerald-900/50"
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+          {isPaying ? "Processing..." : "Mark Paid"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+================================================
+FILE: components/admin/ClientCopyButton.tsx
+================================================
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+
+export default function ClientCopyButton({ token }: { token: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const url = `${window.location.origin}/p/${token}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Button 
+      variant="ghost" 
+      onClick={handleCopy}
+      className={copied ? "text-emerald-400 hover:text-emerald-300" : "text-zinc-400 hover:text-white"}
+    >
+      {copied ? "Copied!" : "Copy URL"}
+    </Button>
+  );
+}
+
+================================================
 FILE: components/admin/InvoiceBuilder.tsx
 ================================================
 "use client"
@@ -391,27 +978,51 @@ FILE: components/admin/InvoiceBuilder.tsx
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import Link from "next/link";
+import { ArrowLeft, Copy, Layers, Plus, X, Send, CheckCircle2 } from "lucide-react";
 
-export default function InvoiceBuilder({ templates }: { templates: any[] }) {
+export default function InvoiceBuilder({ templates, settings }: { templates: any[], settings: any }) {
   const [activeInvoice, setActiveInvoice] = useState<any[]>([]);
+  const [clientName, setClientName] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientAddress, setClientAddress] = useState("");
+  
+  const [customTitle, setCustomTitle] = useState("");
+  const [customDesc, setCustomDesc] = useState("");
+  const [customPrice, setCustomPrice] = useState("");
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  
-  const currentYTDRevenue = 24500; 
-  const threshold = 30000;
-  const percentToThreshold = (currentYTDRevenue / threshold) * 100;
-  const isWarning = percentToThreshold > 80;
 
-  const subtotal = activeInvoice.reduce((sum, item) => sum + (item.default_labor_hours * item.hourly_rate) + item.default_material_cost, 0);
-  const hst = subtotal * 0.13;
+  const subtotal = activeInvoice.reduce((sum, item) => {
+    if (item.isCustom) return sum + item.price;
+    return sum + (item.default_labor_hours * item.hourly_rate) + item.default_material_cost;
+  }, 0);
+  
+  const hst = subtotal * (settings.tax_rate / 100);
   const total = subtotal + hst;
 
   const addJobToInvoice = (job: any) => {
-    setActiveInvoice([...activeInvoice, { ...job, uniqueId: Math.random() }]);
+    setActiveInvoice([...activeInvoice, { ...job, uniqueId: Math.random(), isCustom: false }]);
+  };
+
+  const addCustomItem = () => {
+    if (!customTitle || !customPrice) return;
+    setActiveInvoice([...activeInvoice, { 
+      title: customTitle, 
+      description: customDesc,
+      price: parseFloat(customPrice), 
+      uniqueId: Math.random(), 
+      isCustom: true 
+    }]);
+    setCustomTitle("");
+    setCustomDesc("");
+    setCustomPrice("");
   };
 
   const removeJob = (uniqueId: number) => {
@@ -419,18 +1030,26 @@ export default function InvoiceBuilder({ templates }: { templates: any[] }) {
   };
 
   const generateLink = async () => {
+    if (!clientName.trim()) return alert("Please enter a Client Name.");
+    if (activeInvoice.length === 0) return alert("Please add at least one item.");
+
     setIsGenerating(true);
     try {
       const res = await fetch('/api/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: activeInvoice, tax_rate: 13.00 })
+        body: JSON.stringify({ 
+          client_name: clientName,
+          client_email: clientEmail,
+          client_address: clientAddress,
+          items: activeInvoice, 
+          tax_rate: settings.tax_rate 
+        })
       });
       const data = await res.json();
       
       if (data.success) {
         setGeneratedToken(data.token);
-        setActiveInvoice([]); 
       }
     } catch (error) {
       console.error(error);
@@ -438,159 +1057,376 @@ export default function InvoiceBuilder({ templates }: { templates: any[] }) {
     setIsGenerating(false);
   };
 
-  const copyToClipboard = () => {
-    if (!generatedToken) return;
-    const url = `${window.location.origin}/p/${generatedToken}`;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-50 p-6 font-sans">
-      <header className="mb-8 flex flex-col gap-4">
-        <div className="flex justify-between items-end">
+    <div className="min-h-screen bg-zinc-950 text-zinc-50 p-4 md:p-8 font-sans selection:bg-emerald-500/30">
+      <div className="max-w-7xl mx-auto space-y-8">
+        
+        <header className="flex justify-between items-end border-b border-zinc-800 pb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Umar's Command Center</h1>
-            <p className="text-zinc-400">Nepean Handyman Services</p>
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-50 mb-1">Document Builder</h1>
+            <p className="text-zinc-500 text-sm tracking-wide uppercase">{settings.company_name}</p>
           </div>
-        </div>
+          <Link href="/admin">
+            <Button variant="ghost" className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 h-10 px-4 transition-colors">
+              <ArrowLeft className="w-4 h-4 mr-2" /> Ledger
+            </Button>
+          </Link>
+        </header>
 
-        <Card className="bg-zinc-900 border-zinc-800">
-          <CardContent className="p-4">
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-zinc-400">YTD Revenue (Pre-Tax)</span>
-              <span className="font-mono text-zinc-300">${currentYTDRevenue.toLocaleString()} / $30,000</span>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          <div className="lg:col-span-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-400" /> Service Library
+              </h2>
             </div>
-            <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
-              <div 
-                className={`h-full ${isWarning ? 'bg-orange-500' : 'bg-emerald-500'} transition-all`} 
-                style={{ width: `${percentToThreshold}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 space-y-6">
-          <div>
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              Job Bundles <Badge variant="secondary" className="bg-zinc-800 text-zinc-300">Tap to Add</Badge>
-            </h2>
-            <div className="grid grid-cols-2 gap-4">
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {templates.map((job) => (
                 <Card 
                   key={job.id} 
-                  className="bg-zinc-900 border-zinc-800 hover:border-zinc-600 transition-colors cursor-pointer active:scale-95"
+                  className="bg-zinc-900 border-zinc-800 hover:border-emerald-500/50 hover:bg-zinc-800/80 transition-all cursor-pointer group active:scale-[0.98] shadow-md"
                   onClick={() => addJobToInvoice(job)}
                 >
-                  <CardHeader className="p-4 pb-2">
-                    <CardTitle className="text-base text-zinc-100">{job.title}</CardTitle>
-                    <CardDescription className="text-zinc-400 text-xs">
-                      {job.default_labor_hours}h Labor • ${job.default_material_cost} Mat.
-                    </CardDescription>
+                  <CardHeader className="p-4">
+                    <CardTitle className="text-sm font-bold text-zinc-200 group-hover:text-emerald-400 transition-colors">
+                      {job.title}
+                    </CardTitle>
+                    <p className="text-zinc-400 text-xs mt-2 font-mono bg-zinc-950 inline-block px-2 py-1 rounded-md border border-zinc-800 w-fit">
+                      ${(job.default_material_cost + (job.default_labor_hours * job.hourly_rate)).toFixed(2)}
+                    </p>
                   </CardHeader>
                 </Card>
               ))}
             </div>
-          </div>
-        </div>
 
-        <div className="lg:col-span-5">
-          <Card className="bg-zinc-900 border-zinc-800 sticky top-6 shadow-2xl">
-            <CardHeader className="border-b border-zinc-800 pb-4">
-              <CardTitle className="text-lg text-white flex justify-between">
-                Active Estimate
-                {activeInvoice.length > 0 && <Badge className="bg-emerald-500 text-emerald-950">Draft</Badge>}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {activeInvoice.length === 0 ? (
-                <div className="p-8 text-center text-zinc-500 text-sm">
-                  Tap a job bundle to start building an estimate.
+            <Card className="bg-zinc-900/50 border-zinc-800 border-dashed mt-8 shadow-sm">
+              <CardContent className="p-5 space-y-3">
+                <h3 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-zinc-500" /> Custom Line Item
+                </h3>
+                <Input placeholder="Service Title" value={customTitle} onChange={e => setCustomTitle(e.target.value)} className="bg-zinc-950 border-zinc-700 text-zinc-100" />
+                <Input placeholder="Description details (optional)" value={customDesc} onChange={e => setCustomDesc(e.target.value)} className="bg-zinc-950 border-zinc-700 text-zinc-100" />
+                <div className="flex gap-3">
+                  <Input placeholder="Price ($)" type="number" value={customPrice} onChange={e => setCustomPrice(e.target.value)} className="bg-zinc-950 border-zinc-700 text-zinc-100 font-mono" />
+                  <Button onClick={addCustomItem} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700 px-6"><Plus className="w-5 h-5" /></Button>
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-zinc-800 hover:bg-transparent">
-                      <TableHead className="text-zinc-400">Job</TableHead>
-                      <TableHead className="text-right text-zinc-400">Amount</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {activeInvoice.map((item) => (
-                      <TableRow key={item.uniqueId} className="border-zinc-800 hover:bg-zinc-800/50">
-                        <TableCell className="font-medium text-zinc-300 py-3">
-                          {item.title}
-                          <div className="text-xs text-zinc-500 mt-1">
-                            {item.default_labor_hours}h @ ${item.hourly_rate}/h + ${item.default_material_cost} parts
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right text-zinc-300 font-mono">
-                          ${((item.default_labor_hours * item.hourly_rate) + item.default_material_cost).toFixed(2)}
-                        </TableCell>
-                        <TableCell>
-                          <button onClick={() => removeJob(item.uniqueId)} className="text-zinc-600 hover:text-red-400">✕</button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-            
-            {activeInvoice.length > 0 && (
-              <CardFooter className="flex-col gap-4 border-t border-zinc-800 bg-zinc-950/50 p-4 rounded-b-xl">
-                <div className="w-full space-y-1 text-sm">
-                  <div className="flex justify-between text-zinc-400">
-                    <span>Subtotal</span>
-                    <span className="font-mono">${subtotal.toFixed(2)}</span>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="lg:col-span-6">
+            <Card className="bg-zinc-900 border-zinc-800 sticky top-8 shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/5">
+              
+              <div className="border-b border-zinc-800 bg-zinc-950/80 p-6 space-y-4">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Bill To (Client Name)</label>
+                  <Input placeholder="e.g. John Doe" value={clientName} onChange={e => setClientName(e.target.value)} className="bg-black border-zinc-700 text-zinc-100 font-semibold text-lg h-12" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Email</label>
+                    <Input placeholder="john@example.com" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="bg-black border-zinc-700 text-zinc-100 h-10" />
                   </div>
-                  <div className="flex justify-between text-zinc-400">
-                    <span>HST (13%)</span>
-                    <span className="font-mono">${hst.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-white font-bold text-lg pt-2 border-t border-zinc-800 mt-2">
-                    <span>Total</span>
-                    <span className="font-mono">${total.toFixed(2)}</span>
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Address</label>
+                    <Input placeholder="123 Main St" value={clientAddress} onChange={e => setClientAddress(e.target.value)} className="bg-black border-zinc-700 text-zinc-100 h-10" />
                   </div>
                 </div>
+              </div>
+              
+              <CardContent className="p-0 min-h-[250px] bg-zinc-900">
+                {activeInvoice.length === 0 ? (
+                  <div className="p-12 text-center text-zinc-500 flex flex-col items-center justify-center h-full opacity-60">
+                    <Layers className="w-10 h-10 mb-3 text-zinc-700" />
+                    <p className="text-sm font-medium">Document is empty.</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableBody>
+                      {activeInvoice.map((item) => (
+                        <TableRow key={item.uniqueId} className="border-zinc-800 hover:bg-zinc-800/50 group">
+                          <TableCell className="font-medium text-zinc-200 py-4 pl-6 align-top">
+                            <span className="block leading-snug">{item.title}</span>
+                            <span className="block text-xs text-zinc-500 mt-1">{item.isCustom ? item.description : 'Standard Service Profile'}</span>
+                          </TableCell>
+                          <TableCell className="text-right text-zinc-300 font-mono text-sm pt-4 align-top">
+                            ${item.isCustom ? item.price.toFixed(2) : ((item.default_labor_hours * item.hourly_rate) + item.default_material_cost).toFixed(2)}
+                          </TableCell>
+                          <TableCell className="pt-3 pr-4 align-top w-[50px]">
+                            <button onClick={() => removeJob(item.uniqueId)} className="text-zinc-500 hover:text-red-400 p-1.5 opacity-0 group-hover:opacity-100 transition-all"><X className="w-4 h-4" /></button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+              
+              <CardFooter className="flex-col gap-5 border-t border-zinc-800 bg-zinc-950 p-6">
+                <div className="w-full space-y-2 text-sm">
+                  <div className="flex justify-between text-zinc-400 font-medium">
+                    <span>Subtotal</span><span className="font-mono text-zinc-300">${subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-zinc-400 font-medium">
+                    <span>Tax ({settings.tax_rate}%)</span><span className="font-mono text-zinc-300">${hst.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-end text-zinc-100 font-bold pt-4 border-t border-zinc-800 mt-3">
+                    <span className="text-base text-zinc-400">Total</span>
+                    <span className="font-mono text-2xl tracking-tight">${total.toFixed(2)}</span>
+                  </div>
+                </div>
+                
                 <Button 
                   onClick={generateLink} 
-                  disabled={isGenerating}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white border-none h-12 text-lg"
+                  disabled={isGenerating || activeInvoice.length === 0}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white h-14 text-lg font-bold mt-2"
                 >
-                  {isGenerating ? "Generating..." : "Generate Magic Link"}
+                  {isGenerating ? "Processing..." : <><Send className="w-5 h-5 mr-2" /> Generate Secure Link</>}
                 </Button>
               </CardFooter>
-            )}
-          </Card>
+            </Card>
+          </div>
         </div>
-      </div>
 
-      {/* SUCCESS MODAL */}
-      <Dialog open={!!generatedToken} onOpenChange={() => setGeneratedToken(null)}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl text-emerald-400">Link Generated Successfully</DialogTitle>
-            <DialogDescription className="text-zinc-400">
-              Your estimate is ready. Text or email this secure link to your client.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center space-x-2 mt-4">
-            <div className="grid flex-1 border border-zinc-700 bg-zinc-950 rounded-md p-3 text-sm font-mono truncate text-zinc-300">
-              {generatedToken ? `${window.location.origin}/p/${generatedToken}` : ''}
+        <Dialog open={!!generatedToken} onOpenChange={() => {
+          setGeneratedToken(null);
+          window.location.href = '/admin'; // Force back to ledger after close
+        }}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-50 sm:max-w-md p-0 overflow-hidden shadow-2xl">
+            <div className="bg-emerald-500/10 p-8 pb-6 border-b border-zinc-800 text-center">
+              <div className="w-14 h-14 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+              </div>
+              <DialogTitle className="text-2xl font-bold">Link Generated</DialogTitle>
+            </div>
+            
+            <div className="p-6 space-y-5 bg-zinc-950">
+              <div className="border border-zinc-700 bg-black rounded-lg p-4 text-sm font-mono truncate text-zinc-300 select-all">
+                {generatedToken ? `${window.location.origin}/p/${generatedToken}` : ''}
+              </div>
+              <Button onClick={() => {
+                if (!generatedToken) return;
+                navigator.clipboard.writeText(`${window.location.origin}/p/${generatedToken}`);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }} className="w-full bg-white text-zinc-950 h-12 font-bold">
+                {copied ? "Copied!" : "Copy Link"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
+  );
+}
+
+================================================
+FILE: components/admin/SettingsForm.tsx
+================================================
+"use client";
+
+import { useState } from "react";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useRouter } from "next/navigation";
+import { Save, Building2, Percent, ShieldCheck, FileText, Plus, Trash2, Mail, Phone, Globe, MapPin } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+export default function SettingsForm({ initialSettings, initialTemplates }: { initialSettings: any, initialTemplates: any[] }) {
+  const [formData, setFormData] = useState({
+    company_name: initialSettings.company_name || "",
+    business_number: initialSettings.business_number || "",
+    business_phone: initialSettings.business_phone || "",
+    business_email: initialSettings.business_email || "",
+    business_website: initialSettings.business_website || "",
+    business_address: initialSettings.business_address || "",
+    tax_rate: initialSettings.tax_rate || 13.0,
+    payment_terms: initialSettings.payment_terms || "Net 30",
+    require_signature: Boolean(initialSettings.require_signature)
+  });
+  
+  const [isSaving, setIsSaving] = useState(false);
+  const [newServiceTitle, setNewServiceTitle] = useState("");
+  const [newServiceDesc, setNewServiceDesc] = useState("");
+  const [newServicePrice, setNewServicePrice] = useState("");
+
+  const router = useRouter();
+
+  const handleChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveSettings = async () => {
+    setIsSaving(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          tax_rate: parseFloat(formData.tax_rate.toString())
+        })
+      });
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+    }
+    setIsSaving(false);
+  };
+
+  const handleAddService = async () => {
+    if (!newServiceTitle || !newServicePrice) return;
+    try {
+      await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newServiceTitle,
+          description: newServiceDesc,
+          default_labor_hours: 0,
+          default_material_cost: parseFloat(newServicePrice),
+          hourly_rate: 0
+        })
+      });
+      setNewServiceTitle("");
+      setNewServiceDesc("");
+      setNewServicePrice("");
+      router.refresh();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteService = async (id: number) => {
+    await fetch(`/api/templates?id=${id}`, { method: 'DELETE' });
+    router.refresh();
+  };
+
+  return (
+    <div className="space-y-8 pb-12">
+      <Card className="bg-zinc-900 border-white/10 text-white shadow-2xl">
+        <CardHeader className="border-b border-zinc-800 pb-6">
+          <CardTitle className="text-xl flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-zinc-400" />
+            Company Identity
+          </CardTitle>
+          <CardDescription className="text-zinc-400 text-base">This formats your PDF printouts exactly.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6 pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label className="text-zinc-300">Business Name</Label>
+              <Input value={formData.company_name} onChange={(e) => handleChange('company_name', e.target.value)} className="bg-black border-white/10 text-white" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-zinc-300">Tax/Business Number</Label>
+              <Input value={formData.business_number} onChange={(e) => handleChange('business_number', e.target.value)} className="bg-black border-white/10 text-white" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-zinc-300 flex items-center gap-2"><Phone className="w-4 h-4"/> Phone</Label>
+              <Input value={formData.business_phone} onChange={(e) => handleChange('business_phone', e.target.value)} className="bg-black border-white/10 text-white" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-zinc-300 flex items-center gap-2"><Mail className="w-4 h-4"/> Email</Label>
+              <Input value={formData.business_email} onChange={(e) => handleChange('business_email', e.target.value)} className="bg-black border-white/10 text-white" />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-zinc-300 flex items-center gap-2"><MapPin className="w-4 h-4"/> Physical Address</Label>
+              <Input value={formData.business_address} placeholder="123 Main St, Ottawa, ON K2J 1A1" onChange={(e) => handleChange('business_address', e.target.value)} className="bg-black border-white/10 text-white" />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-zinc-300 flex items-center gap-2"><Globe className="w-4 h-4"/> Website</Label>
+              <Input value={formData.business_website} onChange={(e) => handleChange('business_website', e.target.value)} className="bg-black border-white/10 text-white" />
             </div>
           </div>
-          <DialogFooter className="sm:justify-start mt-4">
-            <Button type="button" onClick={copyToClipboard} className="w-full bg-white text-zinc-950 hover:bg-zinc-200">
-              {copied ? "Copied to Clipboard!" : "Copy Link"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-zinc-800">
+            <div className="space-y-2">
+              <Label className="text-zinc-300 flex items-center gap-2"><Percent className="w-4 h-4" /> Tax Rate (%)</Label>
+              <Input type="number" step="0.1" value={formData.tax_rate} onChange={(e) => handleChange('tax_rate', e.target.value)} className="bg-black border-white/10 text-white font-mono" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-zinc-300 flex items-center gap-2"><FileText className="w-4 h-4" /> Payment Terms</Label>
+              <Input value={formData.payment_terms} onChange={(e) => handleChange('payment_terms', e.target.value)} className="bg-black border-white/10 text-white" />
+            </div>
+          </div>
+
+          <div className="p-4 bg-black border border-zinc-800 rounded-lg flex items-center justify-between">
+            <div className="pr-4">
+              <Label className="text-white font-bold text-base flex items-center gap-2 mb-1">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" /> Require Signature
+              </Label>
+              <p className="text-sm text-zinc-500">Block estimate approval without a signature.</p>
+            </div>
+            <div className="flex items-center bg-zinc-900 p-1 rounded-lg border border-zinc-800 shrink-0">
+              <button 
+                onClick={() => handleChange('require_signature', false)}
+                className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${!formData.require_signature ? 'bg-zinc-800 text-white' : 'bg-transparent text-zinc-500'}`}
+              >
+                Optional
+              </button>
+              <button 
+                onClick={() => handleChange('require_signature', true)}
+                className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${formData.require_signature ? 'bg-emerald-600 text-white' : 'bg-transparent text-zinc-500'}`}
+              >
+                Required
+              </button>
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter className="border-t border-zinc-800 pt-6 bg-zinc-950/50">
+          <Button onClick={handleSaveSettings} disabled={isSaving} className="bg-white text-black hover:bg-zinc-200 font-bold w-full h-12 text-lg">
+            <Save className="w-5 h-5 mr-2" /> {isSaving ? "Saving..." : "Save Configuration"}
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Card className="bg-zinc-900 border-zinc-800 text-white">
+        <CardHeader className="border-b border-zinc-800 pb-6">
+          <CardTitle className="text-xl">Service Catalog</CardTitle>
+          <CardDescription className="text-zinc-400">Manage the reusable job bundles shown in your estimate builder.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-transparent">
+                <TableHead className="text-zinc-400">Service Name</TableHead>
+                <TableHead className="text-right text-zinc-400">Base Price</TableHead>
+                <TableHead className="w-[80px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {initialTemplates.map((template) => (
+                <TableRow key={template.id} className="border-zinc-800">
+                  <TableCell className="font-medium text-zinc-200">{template.title}</TableCell>
+                  <TableCell className="text-right font-mono text-zinc-300">
+                    ${(template.default_material_cost + (template.default_labor_hours * template.hourly_rate)).toFixed(2)}
+                  </TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon-sm" className="text-zinc-500 hover:text-red-400" onClick={() => handleDeleteService(template.id)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          
+          <div className="p-6 border-t border-zinc-800 bg-zinc-950/50">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Input placeholder="Service Title" value={newServiceTitle} onChange={e => setNewServiceTitle(e.target.value)} className="md:col-span-2 bg-black border-zinc-800 text-white" />
+              <Input placeholder="Flat Price ($)" type="number" value={newServicePrice} onChange={e => setNewServicePrice(e.target.value)} className="bg-black border-zinc-800 font-mono text-white" />
+              <Button onClick={handleAddService} className="bg-zinc-800 hover:bg-zinc-700 text-white">
+                <Plus className="w-4 h-4 mr-2" /> Add
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -600,107 +1436,277 @@ FILE: components/client/ClientInvoice.tsx
 ================================================
 "use client"
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { useState, useRef, useEffect } from "react";
 
-export default function ClientInvoice({ invoice, items, companyName }: { invoice: any, items: any[], companyName: string }) {
+export default function ClientInvoice({ 
+  invoice, 
+  items, 
+  settings 
+}: { 
+  invoice: any; 
+  items: any[]; 
+  settings: any;
+}) {
   const [status, setStatus] = useState(invoice.status);
   const [isApproving, setIsApproving] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawing = useRef(false);
 
-  const subtotal = items.reduce((sum, item) => sum + item.unit_price, 0);
+  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const hst = subtotal * (invoice.tax_rate / 100);
   const total = subtotal + hst;
 
-  const handleApprove = async () => {
-    setIsApproving(true);
-    try {
-      const res = await fetch(`/api/invoices/${invoice.token}/approve`, { method: 'POST' });
-      if (res.ok) {
-        setStatus('approved');
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas && status === 'draft') {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#000000';
       }
-    } catch (error) {
-      console.error("Failed to approve:", error);
     }
+  }, [status]);
+
+  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    isDrawing.current = true;
+    draw(e);
+  };
+
+  const stopDrawing = () => {
+    isDrawing.current = false;
+    const canvas = canvasRef.current;
+    if (canvas) canvas.getContext('2d')?.beginPath();
+    setHasSignature(true);
+  };
+
+  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDrawing.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+
+    ctx.lineTo(clientX - rect.left, clientY - rect.top);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(clientX - rect.left, clientY - rect.top);
+  };
+
+  const handleApprove = async () => {
+    if (settings.require_signature && !hasSignature) {
+      alert("A signature is required to authorize this document.");
+      return;
+    }
+    setIsApproving(true);
+    const signatureData = hasSignature ? canvasRef.current?.toDataURL('image/png') : null;
+    try {
+      const res = await fetch(`/api/invoices/${invoice.token}/approve`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature: signatureData })
+      });
+      if (res.ok) setStatus('approved');
+    } catch (e) { console.error(e); }
     setIsApproving(false);
   };
 
+  const issueDate = new Date(invoice.created_at).toLocaleDateString();
+  
+  // Calculate Due Date based on terms if it says "Net 15" or "Net 30"
+  let dueDate = issueDate;
+  if (settings.payment_terms.toLowerCase().includes('net')) {
+    const days = parseInt(settings.payment_terms.replace(/[^0-9]/g, '')) || 0;
+    if (days > 0) {
+      const d = new Date(invoice.created_at);
+      d.setDate(d.getDate() + days);
+      dueDate = d.toLocaleDateString();
+    }
+  }
+
+  const invoiceNumber = `${invoice.id.toString().padStart(6, '0')}`;
+
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950 p-4 sm:p-6 font-sans flex justify-center">
-      <div className="w-full max-w-2xl mt-8">
-        
-        {/* State-Shifting Banner */}
-        {status === 'approved' && (
-          <div className="mb-6 p-4 bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-200 flex justify-between items-center">
-            <span className="font-medium">✅ Estimate Approved</span>
-            <span className="text-sm">We will begin work shortly.</span>
-          </div>
-        )}
-
-        <Card className="shadow-xl border-zinc-200">
-          <CardHeader className="border-b border-zinc-100 pb-6 bg-white rounded-t-xl">
-            <div className="flex justify-between items-start">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">{companyName}</h1>
-                <p className="text-zinc-500 text-sm mt-1">Official Estimate</p>
-              </div>
-              <Badge variant={status === 'approved' ? 'default' : 'secondary'} className={status === 'approved' ? 'bg-emerald-500' : 'bg-zinc-200 text-zinc-700'}>
-                {status.toUpperCase()}
-              </Badge>
-            </div>
-          </CardHeader>
+    <>
+      <style dangerouslySetLiteral={{__html: `
+        @media print {
+          body { background: white !important; margin: 0 !important; padding: 0 !important; }
+          .no-print { display: none !important; }
+          .print-area { box-shadow: none !important; max-width: 100% !important; border: none !important; padding: 0 !important; }
+          @page { margin: 1cm; size: auto; }
+        }
+      `}} />
+      <div className="min-h-screen bg-gray-100 text-black py-8 px-4 flex justify-center font-sans">
+        <div className="w-full max-w-[850px]">
           
-          <CardContent className="p-0 bg-white">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-zinc-50/50">
-                  <TableHead className="text-zinc-500">Description</TableHead>
-                  <TableHead className="text-right text-zinc-500">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium py-4">{item.description}</TableCell>
-                    <TableCell className="text-right font-mono">${item.unit_price.toFixed(2)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-          
-          <CardFooter className="flex-col gap-6 border-t border-zinc-100 bg-zinc-50 p-6 rounded-b-xl">
-            <div className="w-full space-y-2 text-sm">
-              <div className="flex justify-between text-zinc-500">
-                <span>Subtotal</span>
-                <span className="font-mono">${subtotal.toFixed(2)}</span>
+          {/* Interactive Banners (Hidden on Print) */}
+          <div className="no-print mb-6">
+            {status === 'approved' && (
+              <div className="p-4 bg-green-50 border-l-4 border-green-600 text-green-800 shadow-sm flex justify-between items-center">
+                <span className="font-bold">Estimate Approved. We have received your authorization.</span>
+                <button onClick={() => window.print()} className="text-sm underline font-semibold">Print PDF</button>
               </div>
-              <div className="flex justify-between text-zinc-500">
-                <span>HST ({invoice.tax_rate}%)</span>
-                <span className="font-mono">${hst.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-zinc-900 font-bold text-xl pt-4 border-t border-zinc-200 mt-2">
-                <span>Total</span>
-                <span className="font-mono">${total.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* The Magic Button */}
-            {status === 'draft' && (
-              <Button 
-                onClick={handleApprove} 
-                disabled={isApproving}
-                className="w-full bg-zinc-900 hover:bg-zinc-800 text-white h-14 text-lg rounded-xl shadow-lg transition-transform active:scale-[0.98]"
-              >
-                {isApproving ? "Processing..." : "Approve & Sign"}
-              </Button>
             )}
-          </CardFooter>
-        </Card>
+            {status === 'paid' && (
+              <div className="p-4 bg-blue-50 border-l-4 border-blue-600 text-blue-800 shadow-sm flex justify-between items-center">
+                <span className="font-bold">Invoice Paid in Full. Thank you for your business.</span>
+                <button onClick={() => window.print()} className="text-sm underline font-semibold">Print Receipt</button>
+              </div>
+            )}
+            {status === 'draft' && (
+              <div className="flex justify-end mb-2">
+                <button onClick={() => window.print()} className="text-sm text-gray-500 hover:text-black underline font-semibold">Print / Save as PDF</button>
+              </div>
+            )}
+          </div>
+
+          {/* The Paper Document */}
+          <div className="print-area bg-white shadow-2xl p-10 md:p-16 border border-gray-200">
+            
+            {/* Header Section */}
+            <div className="flex flex-col md:flex-row justify-between items-start mb-16">
+              <div className="w-1/2">
+                <h1 className="text-3xl font-normal text-black mb-4">{settings.company_name}</h1>
+                <div className="text-gray-600 text-sm leading-relaxed grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                  <div>
+                    {settings.business_address ? <p className="whitespace-pre-wrap">{settings.business_address}</p> : <p>No address on file</p>}
+                  </div>
+                  <div>
+                    {settings.business_phone && <p>{settings.business_phone}</p>}
+                    {settings.business_email && <p>{settings.business_email}</p>}
+                    {settings.business_website && <p>{settings.business_website}</p>}
+                    {settings.business_number && <p className="mt-2 text-xs">BN: {settings.business_number}</p>}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-8 md:mt-0 text-left md:text-right w-1/2">
+                <h2 className="text-lg font-bold text-[#4ade80] uppercase tracking-widest leading-none mb-1">
+                  Handyman
+                </h2>
+                <h2 className="text-5xl font-black text-black uppercase tracking-tighter">
+                  {status === 'draft' ? 'Estimate' : 'Invoice'}
+                </h2>
+              </div>
+            </div>
+
+            {/* Grid Information */}
+            <div className="grid grid-cols-4 gap-4 mb-10 text-sm">
+              <div className="col-span-1">
+                <p className="text-[#166534] font-semibold mb-2">Bill To</p>
+                <p className="font-bold text-black text-base">{invoice.client_name}</p>
+                {invoice.client_address && <p className="text-black mt-1 whitespace-pre-wrap leading-tight">{invoice.client_address}</p>}
+                {invoice.client_email && <p className="text-black mt-1">{invoice.client_email}</p>}
+              </div>
+              <div className="col-span-1 border-l border-gray-100 pl-4">
+                <p className="text-[#166534] font-semibold mb-2">Invoice #</p>
+                <p className="text-black mb-6 font-mono text-base">{invoiceNumber}</p>
+                
+                <p className="text-[#166534] font-semibold mb-2">Issue Date</p>
+                <p className="text-black font-mono">{issueDate}</p>
+              </div>
+              <div className="col-span-1 border-l border-gray-100 pl-4">
+                <p className="text-[#166534] font-semibold mb-2">Payment Terms</p>
+                <p className="text-black mb-6">{settings.payment_terms}</p>
+
+                <p className="text-[#166534] font-semibold mb-2">Due Date</p>
+                <p className="text-black font-mono">{dueDate}</p>
+              </div>
+              <div className="col-span-1 text-right bg-gray-50 p-4 -mt-4 rounded border border-gray-100">
+                <p className="text-[#166534] font-semibold mb-2">Amount Due</p>
+                <p className="text-3xl font-bold text-black tracking-tight">${total.toFixed(2)}</p>
+              </div>
+            </div>
+
+            {/* Line Items Table */}
+            <div className="border-t-2 border-black mb-10 pt-2">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[#166534] text-sm">
+                    <th className="py-2 font-semibold">Description</th>
+                    <th className="py-2 font-semibold text-right">Qty / Hrs</th>
+                    <th className="py-2 font-semibold text-right">Price / Rate</th>
+                    <th className="py-2 font-semibold text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, index) => (
+                    <tr key={item.id} className={index !== items.length -1 ? "border-b border-gray-100" : ""}>
+                      <td className="py-4 pr-4">
+                        <p className="font-bold text-black text-base">{item.title}</p>
+                        <p className="text-gray-500 text-xs mt-1">{item.description}</p>
+                      </td>
+                      <td className="py-4 text-right text-black font-mono">{item.qty}</td>
+                      <td className="py-4 text-right text-black font-mono">${item.rate.toFixed(2)}</td>
+                      <td className="py-4 text-right text-black font-mono font-bold">${item.total.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="border-b border-gray-200 mt-2"></div>
+            </div>
+
+            {/* Bottom Section */}
+            <div className="flex flex-col md:flex-row justify-between mb-16 gap-8">
+              <div className="w-full md:w-1/2">
+                <p className="text-[#166534] font-semibold text-sm mb-1">Notes:</p>
+                <p className="text-black text-sm whitespace-pre-wrap">{invoice.notes || `Thank you for choosing ${settings.company_name}.`}</p>
+              </div>
+              
+              <div className="w-full md:w-1/3">
+                <table className="w-full text-right text-sm">
+                  <tbody>
+                    <tr>
+                      <td className="pb-3 text-[#166534] font-semibold">Subtotal</td>
+                      <td className="pb-3 font-mono font-medium text-black">${subtotal.toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td className="pb-3 text-[#166534] font-semibold">Tax ({invoice.tax_rate}%)</td>
+                      <td className="pb-3 font-mono font-medium text-black">${hst.toFixed(2)}</td>
+                    </tr>
+                    <tr className="text-lg">
+                      <td className="pt-3 text-[#166534] font-bold">Amount Due</td>
+                      <td className="pt-3 font-mono font-bold text-black">${total.toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Signature Block */}
+            {status === 'draft' ? (
+              <div className="no-print bg-gray-50 border border-gray-200 p-6 rounded-lg max-w-lg">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="font-bold text-sm text-black">
+                    Authorization {settings.require_signature ? "(Required)" : "(Optional)"}
+                  </span>
+                  {hasSignature && <button onClick={() => { canvasRef.current?.getContext('2d')?.clearRect(0,0,800,150); setHasSignature(false); }} className="text-xs text-red-600 hover:underline font-semibold">Clear</button>}
+                </div>
+                <div className="border-2 border-dashed border-gray-300 bg-white h-32 w-full mb-4 cursor-crosshair">
+                  <canvas ref={canvasRef} width={800} height={128} className="w-full h-full touch-none" onMouseDown={startDrawing} onMouseUp={stopDrawing} onMouseOut={stopDrawing} onMouseMove={draw} onTouchStart={startDrawing} onTouchEnd={stopDrawing} onTouchMove={draw} />
+                </div>
+                <Button onClick={handleApprove} disabled={isApproving} className="w-full bg-black text-white hover:bg-gray-800 font-bold h-12">
+                  {isApproving ? "Processing..." : "Authorize Document"}
+                </Button>
+              </div>
+            ) : (
+              invoice.signature_data && (
+                <div className="mt-16 inline-block">
+                  <img src={invoice.signature_data} alt="Signature" className="max-h-20 mix-blend-multiply mb-1" />
+                  <div className="w-64 border-b border-black"></div>
+                  <p className="font-bold text-xs uppercase tracking-wider text-[#166534] mt-2">Authorized Signature</p>
+                </div>
+              )
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1316,48 +2322,17 @@ FILE: components.json
 
 
 ================================================
-FILE: db/seed.mjs
+FILE: db/init.mjs
 ================================================
-// db/seed.mjs
 import Database from 'better-sqlite3';
+
+console.log('Starting Database Initialization...');
+
 const db = new Database('nepean.db');
-
-console.log('🌱 Seeding the database with Nepean Handyman templates...');
-
-const insertTemplate = db.prepare(`
-  INSERT INTO job_templates (title, description, default_labor_hours, default_material_cost, hourly_rate)
-  VALUES (?, ?, ?, ?, ?)
-`);
-
-const templates = [
-  ["Drywall Patch (Small)", "Patch, sand, and prep for paint", 1.5, 25.00, 65.00],
-  ["TV Mounting (Up to 65\")", "Secure mount to studs, hide cables", 1.0, 45.00, 65.00],
-  ["Replace Faucet", "Remove old, install new, test for leaks", 2.0, 15.00, 65.00],
-  ["Door Trim Repair", "Remove damaged casing, cut and install new", 1.5, 30.00, 65.00]
-];
-
-// Run the inserts
-const transaction = db.transaction((items) => {
-  for (const item of items) insertTemplate.run(...item);
-});
-
-transaction(templates);
-console.log('✅ Templates added! You can now delete this seed file if you want.');
-
-================================================
-FILE: db/setup.mjs
-================================================
-// db/setup.mjs
-import Database from 'better-sqlite3';
-import fs from 'fs';
-
-// This creates a file called 'nepean.db' in the root of your project
-const db = new Database('nepean.db');
-
-console.log('🔨 Building Database Schema...');
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
 db.exec(`
-  -- The Client Rolodex
   CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -1367,7 +2342,6 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
-  -- The "Job Bundles" (e.g. TV Mounting, Drywall Patch)
   CREATE TABLE IF NOT EXISTS job_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -1377,31 +2351,57 @@ db.exec(`
     hourly_rate REAL DEFAULT 55.00
   );
 
-  -- The Invoices (The "State-Shifting" Document)
   CREATE TABLE IF NOT EXISTS invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id INTEGER,
-    token TEXT UNIQUE NOT NULL, -- The massive random string for the URL
-    status TEXT DEFAULT 'draft', -- draft, sent, approved, completed, paid
-    tax_rate REAL DEFAULT 13.00, -- Ontario HST
+    client_name TEXT DEFAULT 'New Client',
+    client_email TEXT DEFAULT '',
+    client_address TEXT DEFAULT '',
+    token TEXT UNIQUE NOT NULL,
+    status TEXT DEFAULT 'draft',
+    tax_rate REAL DEFAULT 13.00,
     notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (client_id) REFERENCES clients (id)
+    signature_data TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
-  -- The Line Items on the Invoice
   CREATE TABLE IF NOT EXISTS invoice_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id INTEGER,
-    description TEXT NOT NULL,
-    quantity REAL DEFAULT 1,
-    unit_price REAL NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    qty REAL DEFAULT 1,
+    rate REAL NOT NULL,
+    total REAL NOT NULL,
     is_taxable BOOLEAN DEFAULT 1,
-    FOREIGN KEY (invoice_id) REFERENCES invoices (id)
+    FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    company_name TEXT NOT NULL DEFAULT 'My Company',
+    business_number TEXT DEFAULT '',
+    business_phone TEXT DEFAULT '',
+    business_email TEXT DEFAULT '',
+    business_website TEXT DEFAULT '',
+    business_address TEXT DEFAULT '',
+    tax_rate REAL NOT NULL DEFAULT 13.00,
+    payment_terms TEXT DEFAULT 'Net 30',
+    require_signature BOOLEAN NOT NULL DEFAULT 0,
+    is_setup BOOLEAN NOT NULL DEFAULT 0
   );
 `);
 
-console.log('✅ Database built! nepean.db is ready for action.');
+const insertSettings = db.prepare(`
+  INSERT OR IGNORE INTO settings (
+    id, company_name, business_number, business_phone, business_email, 
+    business_website, business_address, tax_rate, payment_terms, require_signature, is_setup
+  ) VALUES (
+    1, 'Nepean Handyman Services', '', '', '', '', '', 13.00, 'Net 30', 0, 0
+  )
+`);
+insertSettings.run();
+
+console.log('Database initialization complete! Ready for production.');
 
 ================================================
 FILE: eslint.config.mjs
@@ -1429,16 +2429,14 @@ export default eslintConfig;
 ================================================
 FILE: lib/db.ts
 ================================================
-// lib/db.ts
 import Database from 'better-sqlite3';
 import path from 'path';
 
-// Locate the nepean.db file in the root of your project
 const dbPath = path.resolve(process.cwd(), 'nepean.db');
 const db = new Database(dbPath);
 
-// This makes SQLite run insanely fast by allowing concurrent reads/writes
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON'); // Claude's security fix
 
 export default db;
 
@@ -1481,19 +2479,20 @@ FILE: package.json
 ================================================
 {
   "name": "nepean-invoice-engine",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup": "node db/init.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.8.0",
+    "lucide-react": "^0.358.0",
     "next": "16.2.4",
     "radix-ui": "^1.4.3",
     "react": "19.2.4",
@@ -1515,7 +2514,6 @@ FILE: package.json
   }
 }
 
-
 ================================================
 FILE: postcss.config.mjs
 ================================================
@@ -1531,43 +2529,55 @@ export default config;
 ================================================
 FILE: README.md
 ================================================
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ⚡ The Engine: Self-Hosted Invoice & Estimate CRM
 
-## Getting Started
+A blazing-fast, highly secure, self-hosted estimation and invoicing tool designed specifically for independent contractors, freelancers, and tradesmen.
 
-First, run the development server:
+Built with **Next.js (App Router)**, **Tailwind CSS**, and **SQLite**.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🚀 Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+* **Zero-Friction Estimator:** A "Tap-to-Build" interface designed for mobile use in the field. Build complex estimates without typing a single line item.
+* **State-Shifting URLs:** Clients receive a secure, cryptographic "Magic Link". The same link seamlessly shifts from an interactive Estimate to an Approved WIP, to a final Paid Receipt. Zero email chains.
+* **Digital Signatures:** Native HTML5 canvas allows clients to legally sign estimates directly on their phone screens.
+* **The Command Ledger:** Track YTD revenue, monitor Canadian CRA tax thresholds (GST/HST), and manage all jobs from a pristine Dark Mode dashboard.
+* **Zero-Config Deployment:** Uses local SQLite. No complex Docker networks or external database connections required.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🛠️ Tech Stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+* **Frontend:** Next.js 15+, React 19, Tailwind CSS, Shadcn UI
+* **Backend:** Next.js API Routes (Serverless architecture)
+* **Database:** `better-sqlite3` (Lighting fast, local WAL mode)
+* **Icons:** Lucide React
 
-## Learn More
+## 📦 Installation & Setup
 
-To learn more about Next.js, take a look at the following resources:
+1. **Clone the repository:**
+   \`\`\`bash
+   git clone https://github.com/yourusername/engine.git
+   cd engine
+   \`\`\`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+2. **Install dependencies:**
+   \`\`\`bash
+   npm install
+   \`\`\`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. **Initialize the Database:**
+   \`\`\`bash
+   npm run setup
+   \`\`\`
 
-## Deploy on Vercel
+4. **Start the server:**
+   \`\`\`bash
+   npm run dev
+   \`\`\`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+5. **Initialize your Business:**
+   Open `http://localhost:3000` in your browser. You will be automatically redirected to the Setup Wizard to configure your business name and local tax rates.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
+## 🛡️ Security Note
+This application stores your financial data in a local `nepean.db` file. The `.gitignore` prevents this file from being pushed to public repositories. Ensure your server environment backs up this file regularly.
 
 ================================================
 FILE: tsconfig.json
