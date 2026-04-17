@@ -10,16 +10,37 @@ export async function POST(
     const body = await request.json();
     const { signature } = body;
     
-    // Security: Only update if it is currently a draft (Idempotency)
-    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved', signature_data = ? WHERE token = ? AND status = 'draft'");
-    const info = updateStmt.run(signature, resolvedParams.token);
-
-    if (info.changes === 0) {
-      return NextResponse.json({ error: 'Invoice not found or already approved' }, { status: 400 });
+    // SECURITY 1: Payload Validation
+    if (signature) {
+      // Must be a PNG data URI
+      if (!signature.startsWith('data:image/png;base64,')) {
+        return NextResponse.json({ error: 'Invalid signature format.' }, { status: 400 });
+      }
+      // Rough size cap: ~2MB limit to prevent database bloating
+      if (signature.length > 2800000) {
+        return NextResponse.json({ error: 'Signature payload too large.' }, { status: 413 });
+      }
     }
+
+    // SECURITY 2: Idempotency & State Check (Must be 'draft' to sign)
+    const checkStmt = db.prepare("SELECT status FROM invoices WHERE token = ?");
+    const currentInvoice = checkStmt.get(resolvedParams.token) as any;
+
+    if (!currentInvoice) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    if (currentInvoice.status !== 'draft') {
+      return NextResponse.json({ error: 'Invoice is already approved or paid.' }, { status: 409 });
+    }
+
+    // Execute the update
+    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved', signature_data = ? WHERE token = ?");
+    updateStmt.run(signature, resolvedParams.token);
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to update status' }, { status: 500 });
+    console.error("Failed to approve invoice:", error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

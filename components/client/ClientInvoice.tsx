@@ -29,25 +29,30 @@ export default function ClientInvoice({
     if (canvas && status === 'draft') {
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.strokeStyle = '#000000';
       }
     }
   }, [status]);
 
-  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+  // BULLETPROOF MOBILE DRAWING USING POINTER EVENTS
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDrawing.current = true;
+    // Capture the pointer so drawing continues even if finger slips slightly outside the box
+    e.currentTarget.setPointerCapture(e.pointerId);
     draw(e);
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     isDrawing.current = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
     const canvas = canvasRef.current;
     if (canvas) canvas.getContext('2d')?.beginPath();
   };
 
-  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -57,13 +62,27 @@ export default function ClientInvoice({
     setHasSignature(true);
 
     const rect = canvas.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    
+    // Calculate precise scaling to fix offset issues on high-DPI mobile screens
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
 
-    ctx.lineTo(clientX - rect.left, clientY - rect.top);
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    ctx.lineTo(x, y);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(clientX - rect.left, clientY - rect.top);
+    ctx.moveTo(x, y);
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+      setHasSignature(false);
+    }
   };
 
   const handleApprove = async () => {
@@ -79,14 +98,25 @@ export default function ClientInvoice({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ signature: signatureData })
       });
-      if (res.ok) setStatus('approved');
-    } catch (e) { console.error(e); }
+      
+      if (res.ok) {
+        setStatus('approved');
+      } else if (res.status === 409) {
+        alert("This document has already been signed or updated.");
+        window.location.reload();
+      } else if (res.status === 413) {
+        alert("Signature is too large. Please clear and try a simpler signature.");
+      } else {
+        alert("Error saving signature. Please try again.");
+      }
+    } catch (e) { 
+      console.error(e); 
+    }
     setIsApproving(false);
   };
 
   const issueDate = new Date(invoice.created_at).toLocaleDateString();
   
-  // Calculate Due Date based on terms if it says "Net 15" or "Net 30"
   let dueDate = issueDate;
   if (settings.payment_terms.toLowerCase().includes('net')) {
     const days = parseInt(settings.payment_terms.replace(/[^0-9]/g, '')) || 0;
@@ -109,44 +139,43 @@ export default function ClientInvoice({
           @page { margin: 1cm; size: auto; }
         }
       `}} />
-      <div className="min-h-screen bg-zinc-100 text-zinc-900 py-8 px-4 flex justify-center font-sans">
+      <div className="min-h-screen bg-zinc-100 text-zinc-900 py-4 md:py-8 px-2 md:px-4 flex justify-center font-sans">
         <div className="w-full max-w-4xl">
           
-          <div className="no-print mb-6 max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="no-print mb-6 w-full flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="w-full">
               {status === 'approved' && (
-                <div className="p-4 bg-emerald-50 border-l-4 border-emerald-600 text-emerald-800 shadow-sm font-medium">
+                <div className="p-4 bg-emerald-50 border-l-4 border-emerald-600 text-emerald-800 shadow-sm font-medium text-sm md:text-base">
                   Estimate Approved. We have received your authorization.
                 </div>
               )}
               {status === 'paid' && (
-                <div className="p-4 bg-blue-50 border-l-4 border-blue-600 text-blue-800 shadow-sm font-medium">
+                <div className="p-4 bg-blue-50 border-l-4 border-blue-600 text-blue-800 shadow-sm font-medium text-sm md:text-base">
                   Invoice Paid in Full. Thank you for your business.
                 </div>
               )}
             </div>
             
             {(status === 'draft' || status === 'paid' || status === 'approved') && (
-              <Button onClick={() => window.print()} variant="outline" className="bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-50 shrink-0">
+              <Button onClick={() => window.print()} variant="outline" className="bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-50 shrink-0 w-full md:w-auto">
                 <Printer className="w-4 h-4 mr-2" /> Print / Save PDF
               </Button>
             )}
           </div>
 
-          {/* THE PAPER DOCUMENT */}
-          <div className="print-area bg-white shadow-2xl p-10 md:p-16 border border-zinc-200 relative overflow-hidden">
+          <div className="print-area bg-white shadow-2xl p-6 md:p-16 border border-zinc-200 relative overflow-hidden">
             
             {status === 'paid' && (
               <div className="absolute top-24 right-12 opacity-10 pointer-events-none rotate-[-15deg]">
-                <span className="text-8xl font-black border-8 border-black p-4 inline-block text-black uppercase tracking-widest">
+                <span className="text-6xl md:text-8xl font-black border-8 border-black p-4 inline-block text-black uppercase tracking-widest">
                   PAID
                 </span>
               </div>
             )}
 
-            <div className="flex flex-col md:flex-row justify-between items-start mb-12 border-b border-zinc-200 pb-8">
+            <div className="flex flex-col md:flex-row justify-between items-start mb-8 md:mb-12 border-b border-zinc-200 pb-8">
               <div className="w-full md:w-1/2">
-                <h1 className="text-3xl font-bold text-zinc-900 mb-4">{settings.company_name}</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 mb-4">{settings.company_name}</h1>
                 <div className="text-zinc-600 text-sm space-y-0.5">
                   {settings.business_address && <p className="whitespace-pre-wrap mb-2">{settings.business_address}</p>}
                   {settings.business_phone && <p>{settings.business_phone}</p>}
@@ -156,7 +185,7 @@ export default function ClientInvoice({
                 </div>
               </div>
               <div className="mt-8 md:mt-0 text-left md:text-right w-full md:w-1/2">
-                <h2 className="text-4xl font-light text-zinc-300 uppercase tracking-widest">
+                <h2 className="text-3xl md:text-4xl font-light text-zinc-300 uppercase tracking-widest">
                   {status === 'draft' ? 'Estimate' : 'Invoice'}
                 </h2>
                 <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-zinc-800 md:ml-auto md:max-w-[250px]">
@@ -172,7 +201,7 @@ export default function ClientInvoice({
               </div>
             </div>
 
-            <div className="mb-12">
+            <div className="mb-10">
               <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider border-b-2 border-emerald-600 inline-block pb-1 mb-3">Bill To</h3>
               <div className="text-zinc-800 text-sm leading-relaxed">
                 <p className="font-bold text-lg text-zinc-900">{invoice.client_name}</p>
@@ -181,8 +210,8 @@ export default function ClientInvoice({
               </div>
             </div>
 
-            <div className="mb-10">
-              <table className="w-full text-left text-sm border-collapse">
+            <div className="mb-10 overflow-x-auto w-full pb-4">
+              <table className="w-full text-left text-sm border-collapse min-w-[500px]">
                 <thead>
                   <tr className="bg-zinc-100 text-zinc-700 border-b border-zinc-300">
                     <th className="py-3 px-4 font-semibold">Description</th>
@@ -207,14 +236,14 @@ export default function ClientInvoice({
               </table>
             </div>
 
-            <div className="flex flex-col md:flex-row justify-between mb-16 gap-8">
-              <div className="w-full md:w-1/2">
+            <div className="flex flex-col md:flex-row justify-between mb-12 gap-8">
+              <div className="w-full md:w-1/2 order-2 md:order-1">
                 <p className="font-semibold text-zinc-500 text-sm mb-2">Notes:</p>
                 <p className="text-zinc-700 text-sm whitespace-pre-wrap">{invoice.notes || `Thank you for choosing ${settings.company_name}.`}</p>
               </div>
               
-              <div className="w-full md:w-1/2 flex justify-end">
-                <table className="w-72 text-right text-sm">
+              <div className="w-full md:w-1/2 flex md:justify-end order-1 md:order-2">
+                <table className="w-full md:w-72 text-right text-sm">
                   <tbody>
                     <tr>
                       <td className="pb-3 text-zinc-600">Subtotal</td>
@@ -234,16 +263,27 @@ export default function ClientInvoice({
             </div>
 
             {status === 'draft' ? (
-              <div className="no-print bg-zinc-50 border border-zinc-200 p-6 rounded-lg max-w-lg">
+              <div className="no-print bg-zinc-50 border border-zinc-200 p-4 md:p-6 rounded-lg w-full">
                 <div className="flex justify-between items-center mb-3">
                   <span className="font-bold text-sm text-zinc-900 flex items-center gap-2">
                     <PenTool className="w-4 h-4 text-zinc-500"/>
-                    Client Authorization {settings.require_signature ? "(Required)" : "(Optional)"}
+                    Authorization {settings.require_signature ? "(Required)" : "(Optional)"}
                   </span>
-                  {hasSignature && <button onClick={() => { canvasRef.current?.getContext('2d')?.clearRect(0,0,800,128); setHasSignature(false); }} className="text-xs text-zinc-500 hover:text-red-600 hover:underline font-semibold">Clear Pad</button>}
+                  {hasSignature && <button onClick={clearSignature} className="text-xs text-zinc-500 hover:text-red-600 hover:underline font-semibold">Clear Pad</button>}
                 </div>
-                <div className="border border-zinc-300 bg-white h-32 w-full mb-6 cursor-crosshair rounded-md overflow-hidden">
-                  <canvas ref={canvasRef} width={800} height={128} className="w-full h-full touch-none" onMouseDown={startDrawing} onMouseUp={stopDrawing} onMouseOut={stopDrawing} onMouseMove={draw} onTouchStart={startDrawing} onTouchEnd={stopDrawing} onTouchMove={draw} />
+                {/* touch-none physically prevents the mobile browser from scrolling while the user draws */}
+                <div className="border border-zinc-300 bg-white h-40 w-full mb-6 cursor-crosshair rounded-md overflow-hidden">
+                  <canvas 
+                    ref={canvasRef} 
+                    width={800} 
+                    height={160} 
+                    className="w-full h-full touch-none" 
+                    onPointerDown={startDrawing} 
+                    onPointerMove={draw} 
+                    onPointerUp={stopDrawing} 
+                    onPointerOut={stopDrawing} 
+                    onPointerCancel={stopDrawing}
+                  />
                 </div>
                 <Button onClick={handleApprove} disabled={isApproving} className="w-full bg-zinc-900 text-white hover:bg-black font-bold h-12">
                   {isApproving ? "Processing..." : "Approve & Authorize Document"}
@@ -251,9 +291,9 @@ export default function ClientInvoice({
               </div>
             ) : (
               invoice.signature_data && (
-                <div className="mt-16 pt-8 break-inside-avoid">
+                <div className="mt-8 pt-8 break-inside-avoid w-full">
                   <p className="font-bold text-sm uppercase tracking-wider text-zinc-500 mb-4 block">Authorized Signature</p>
-                  <div className="w-64">
+                  <div className="w-full max-w-[300px]">
                     <img src={invoice.signature_data} alt="Client Signature" className="max-h-24 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
                     <p className="text-xs text-zinc-400 mt-2 font-medium">Signed electronically by client.</p>
                   </div>

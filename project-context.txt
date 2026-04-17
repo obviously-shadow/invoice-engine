@@ -58,6 +58,7 @@ nepean-invoice-engine/
 ├── lib
 │   ├── db.ts
 │   └── utils.ts
+├── middleware.ts
 ├── nepean.db
 ├── nepean.db-shm
 ├── nepean.db-wal
@@ -364,17 +365,38 @@ export async function POST(
     const body = await request.json();
     const { signature } = body;
     
-    // Security: Only update if it is currently a draft (Idempotency)
-    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved', signature_data = ? WHERE token = ? AND status = 'draft'");
-    const info = updateStmt.run(signature, resolvedParams.token);
-
-    if (info.changes === 0) {
-      return NextResponse.json({ error: 'Invoice not found or already approved' }, { status: 400 });
+    // SECURITY 1: Payload Validation
+    if (signature) {
+      // Must be a PNG data URI
+      if (!signature.startsWith('data:image/png;base64,')) {
+        return NextResponse.json({ error: 'Invalid signature format.' }, { status: 400 });
+      }
+      // Rough size cap: ~2MB limit to prevent database bloating
+      if (signature.length > 2800000) {
+        return NextResponse.json({ error: 'Signature payload too large.' }, { status: 413 });
+      }
     }
+
+    // SECURITY 2: Idempotency & State Check (Must be 'draft' to sign)
+    const checkStmt = db.prepare("SELECT status FROM invoices WHERE token = ?");
+    const currentInvoice = checkStmt.get(resolvedParams.token) as any;
+
+    if (!currentInvoice) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    if (currentInvoice.status !== 'draft') {
+      return NextResponse.json({ error: 'Invoice is already approved or paid.' }, { status: 409 });
+    }
+
+    // Execute the update
+    const updateStmt = db.prepare("UPDATE invoices SET status = 'approved', signature_data = ? WHERE token = ?");
+    updateStmt.run(signature, resolvedParams.token);
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to update status' }, { status: 500 });
+    console.error("Failed to approve invoice:", error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
 
@@ -683,7 +705,10 @@ import db from "@/lib/db";
 import ClientInvoice from "@/components/client/ClientInvoice";
 import { notFound } from "next/navigation";
 
-export const dynamic = 'force-dynamic'; // Claude's Fix
+// Aggressive Anti-Caching Headers (Claude's Polish #8)
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 function getInvoiceData(token: string) {
   const invoice = db.prepare('SELECT * FROM invoices WHERE token = ?').get(token);
@@ -976,7 +1001,7 @@ FILE: components/admin/InvoiceBuilder.tsx
 "use client"
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -1437,6 +1462,8 @@ FILE: components/client/ClientInvoice.tsx
 "use client"
 
 import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Printer, CheckCircle2, PenTool } from "lucide-react";
 
 export default function ClientInvoice({ 
   invoice, 
@@ -1458,6 +1485,7 @@ export default function ClientInvoice({
   const hst = subtotal * (invoice.tax_rate / 100);
   const total = subtotal + hst;
 
+  // Setup Canvas and Force Disable Scrolling on Touch
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas && status === 'draft') {
@@ -1467,6 +1495,16 @@ export default function ClientInvoice({
         ctx.lineCap = 'round';
         ctx.strokeStyle = '#000000';
       }
+
+      // CRITICAL MOBILE FIX: Stop the screen from scrolling while signing
+      const preventScroll = (e: TouchEvent) => e.preventDefault();
+      canvas.addEventListener('touchstart', preventScroll, { passive: false });
+      canvas.addEventListener('touchmove', preventScroll, { passive: false });
+
+      return () => {
+        canvas.removeEventListener('touchstart', preventScroll);
+        canvas.removeEventListener('touchmove', preventScroll);
+      };
     }
   }, [status]);
 
@@ -1479,7 +1517,6 @@ export default function ClientInvoice({
     isDrawing.current = false;
     const canvas = canvasRef.current;
     if (canvas) canvas.getContext('2d')?.beginPath();
-    setHasSignature(true);
   };
 
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
@@ -1488,6 +1525,8 @@ export default function ClientInvoice({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    setHasSignature(true);
 
     const rect = canvas.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
@@ -1512,14 +1551,23 @@ export default function ClientInvoice({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ signature: signatureData })
       });
-      if (res.ok) setStatus('approved');
-    } catch (e) { console.error(e); }
+      
+      if (res.ok) {
+        setStatus('approved');
+      } else if (res.status === 409) {
+        alert("This document has already been signed or updated.");
+        window.location.reload();
+      } else {
+        alert("Error saving signature. Please try again.");
+      }
+    } catch (e) { 
+      console.error(e); 
+    }
     setIsApproving(false);
   };
 
   const issueDate = new Date(invoice.created_at).toLocaleDateString();
   
-  // Calculate Due Date based on terms if it says "Net 15" or "Net 30"
   let dueDate = issueDate;
   if (settings.payment_terms.toLowerCase().includes('net')) {
     const days = parseInt(settings.payment_terms.replace(/[^0-9]/g, '')) || 0;
@@ -1534,7 +1582,7 @@ export default function ClientInvoice({
 
   return (
     <>
-      <style dangerouslySetLiteral={{__html: `
+      <style dangerouslySetInnerHTML={{__html: `
         @media print {
           body { background: white !important; margin: 0 !important; padding: 0 !important; }
           .no-print { display: none !important; }
@@ -1542,164 +1590,154 @@ export default function ClientInvoice({
           @page { margin: 1cm; size: auto; }
         }
       `}} />
-      <div className="min-h-screen bg-gray-100 text-black py-8 px-4 flex justify-center font-sans">
-        <div className="w-full max-w-[850px]">
+      <div className="min-h-screen bg-zinc-100 text-zinc-900 py-4 md:py-8 px-2 md:px-4 flex justify-center font-sans">
+        <div className="w-full max-w-4xl">
           
-          {/* Interactive Banners (Hidden on Print) */}
-          <div className="no-print mb-6">
-            {status === 'approved' && (
-              <div className="p-4 bg-green-50 border-l-4 border-green-600 text-green-800 shadow-sm flex justify-between items-center">
-                <span className="font-bold">Estimate Approved. We have received your authorization.</span>
-                <button onClick={() => window.print()} className="text-sm underline font-semibold">Print PDF</button>
-              </div>
-            )}
-            {status === 'paid' && (
-              <div className="p-4 bg-blue-50 border-l-4 border-blue-600 text-blue-800 shadow-sm flex justify-between items-center">
-                <span className="font-bold">Invoice Paid in Full. Thank you for your business.</span>
-                <button onClick={() => window.print()} className="text-sm underline font-semibold">Print Receipt</button>
-              </div>
-            )}
-            {status === 'draft' && (
-              <div className="flex justify-end mb-2">
-                <button onClick={() => window.print()} className="text-sm text-gray-500 hover:text-black underline font-semibold">Print / Save as PDF</button>
-              </div>
+          <div className="no-print mb-6 w-full flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="w-full">
+              {status === 'approved' && (
+                <div className="p-4 bg-emerald-50 border-l-4 border-emerald-600 text-emerald-800 shadow-sm font-medium text-sm md:text-base">
+                  Estimate Approved. We have received your authorization.
+                </div>
+              )}
+              {status === 'paid' && (
+                <div className="p-4 bg-blue-50 border-l-4 border-blue-600 text-blue-800 shadow-sm font-medium text-sm md:text-base">
+                  Invoice Paid in Full. Thank you for your business.
+                </div>
+              )}
+            </div>
+            
+            {(status === 'draft' || status === 'paid' || status === 'approved') && (
+              <Button onClick={() => window.print()} variant="outline" className="bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-50 shrink-0 w-full md:w-auto">
+                <Printer className="w-4 h-4 mr-2" /> Print / Save PDF
+              </Button>
             )}
           </div>
 
-          {/* The Paper Document */}
-          <div className="print-area bg-white shadow-2xl p-10 md:p-16 border border-gray-200">
+          <div className="print-area bg-white shadow-2xl p-6 md:p-16 border border-zinc-200 relative overflow-hidden">
             
-            {/* Header Section */}
-            <div className="flex flex-col md:flex-row justify-between items-start mb-16">
-              <div className="w-1/2">
-                <h1 className="text-3xl font-normal text-black mb-4">{settings.company_name}</h1>
-                <div className="text-gray-600 text-sm leading-relaxed grid grid-cols-1 md:grid-cols-2 gap-x-8">
-                  <div>
-                    {settings.business_address ? <p className="whitespace-pre-wrap">{settings.business_address}</p> : <p>No address on file</p>}
-                  </div>
-                  <div>
-                    {settings.business_phone && <p>{settings.business_phone}</p>}
-                    {settings.business_email && <p>{settings.business_email}</p>}
-                    {settings.business_website && <p>{settings.business_website}</p>}
-                    {settings.business_number && <p className="mt-2 text-xs">BN: {settings.business_number}</p>}
-                  </div>
+            {status === 'paid' && (
+              <div className="absolute top-24 right-12 opacity-10 pointer-events-none rotate-[-15deg]">
+                <span className="text-6xl md:text-8xl font-black border-8 border-black p-4 inline-block text-black uppercase tracking-widest">
+                  PAID
+                </span>
+              </div>
+            )}
+
+            <div className="flex flex-col md:flex-row justify-between items-start mb-8 md:mb-12 border-b border-zinc-200 pb-8">
+              <div className="w-full md:w-1/2">
+                <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 mb-4">{settings.company_name}</h1>
+                <div className="text-zinc-600 text-sm space-y-0.5">
+                  {settings.business_address && <p className="whitespace-pre-wrap mb-2">{settings.business_address}</p>}
+                  {settings.business_phone && <p>{settings.business_phone}</p>}
+                  {settings.business_email && <p>{settings.business_email}</p>}
+                  {settings.business_website && <p>{settings.business_website}</p>}
+                  {settings.business_number && <p className="mt-2 text-xs font-mono">BN: {settings.business_number}</p>}
                 </div>
               </div>
-              <div className="mt-8 md:mt-0 text-left md:text-right w-1/2">
-                <h2 className="text-lg font-bold text-[#4ade80] uppercase tracking-widest leading-none mb-1">
-                  Handyman
-                </h2>
-                <h2 className="text-5xl font-black text-black uppercase tracking-tighter">
+              <div className="mt-8 md:mt-0 text-left md:text-right w-full md:w-1/2">
+                <h2 className="text-3xl md:text-4xl font-light text-zinc-300 uppercase tracking-widest">
                   {status === 'draft' ? 'Estimate' : 'Invoice'}
                 </h2>
+                <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-zinc-800 md:ml-auto md:max-w-[250px]">
+                  <div className="font-semibold text-zinc-500 md:text-right">Date:</div>
+                  <div className="md:text-right">{issueDate}</div>
+                  <div className="font-semibold text-zinc-500 md:text-right">Invoice #:</div>
+                  <div className="md:text-right font-mono">{invoiceNumber}</div>
+                  <div className="font-semibold text-zinc-500 md:text-right">Terms:</div>
+                  <div className="md:text-right">{settings.payment_terms}</div>
+                  <div className="font-semibold text-zinc-500 md:text-right">Due Date:</div>
+                  <div className="md:text-right font-medium">{dueDate}</div>
+                </div>
               </div>
             </div>
 
-            {/* Grid Information */}
-            <div className="grid grid-cols-4 gap-4 mb-10 text-sm">
-              <div className="col-span-1">
-                <p className="text-[#166534] font-semibold mb-2">Bill To</p>
-                <p className="font-bold text-black text-base">{invoice.client_name}</p>
-                {invoice.client_address && <p className="text-black mt-1 whitespace-pre-wrap leading-tight">{invoice.client_address}</p>}
-                {invoice.client_email && <p className="text-black mt-1">{invoice.client_email}</p>}
-              </div>
-              <div className="col-span-1 border-l border-gray-100 pl-4">
-                <p className="text-[#166534] font-semibold mb-2">Invoice #</p>
-                <p className="text-black mb-6 font-mono text-base">{invoiceNumber}</p>
-                
-                <p className="text-[#166534] font-semibold mb-2">Issue Date</p>
-                <p className="text-black font-mono">{issueDate}</p>
-              </div>
-              <div className="col-span-1 border-l border-gray-100 pl-4">
-                <p className="text-[#166534] font-semibold mb-2">Payment Terms</p>
-                <p className="text-black mb-6">{settings.payment_terms}</p>
-
-                <p className="text-[#166534] font-semibold mb-2">Due Date</p>
-                <p className="text-black font-mono">{dueDate}</p>
-              </div>
-              <div className="col-span-1 text-right bg-gray-50 p-4 -mt-4 rounded border border-gray-100">
-                <p className="text-[#166534] font-semibold mb-2">Amount Due</p>
-                <p className="text-3xl font-bold text-black tracking-tight">${total.toFixed(2)}</p>
+            <div className="mb-10">
+              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider border-b-2 border-emerald-600 inline-block pb-1 mb-3">Bill To</h3>
+              <div className="text-zinc-800 text-sm leading-relaxed">
+                <p className="font-bold text-lg text-zinc-900">{invoice.client_name}</p>
+                {invoice.client_address && <p className="whitespace-pre-wrap mt-1">{invoice.client_address}</p>}
+                {invoice.client_email && <p className="mt-1">{invoice.client_email}</p>}
               </div>
             </div>
 
-            {/* Line Items Table */}
-            <div className="border-t-2 border-black mb-10 pt-2">
-              <table className="w-full text-left">
+            <div className="mb-10 overflow-x-auto w-full pb-4">
+              <table className="w-full text-left text-sm border-collapse min-w-[500px]">
                 <thead>
-                  <tr className="text-[#166534] text-sm">
-                    <th className="py-2 font-semibold">Description</th>
-                    <th className="py-2 font-semibold text-right">Qty / Hrs</th>
-                    <th className="py-2 font-semibold text-right">Price / Rate</th>
-                    <th className="py-2 font-semibold text-right">Amount</th>
+                  <tr className="bg-zinc-100 text-zinc-700 border-b border-zinc-300">
+                    <th className="py-3 px-4 font-semibold">Description</th>
+                    <th className="py-3 px-4 font-semibold text-right w-24">Qty/Hrs</th>
+                    <th className="py-3 px-4 font-semibold text-right w-32">Rate</th>
+                    <th className="py-3 px-4 font-semibold text-right w-32">Amount</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {items.map((item, index) => (
-                    <tr key={item.id} className={index !== items.length -1 ? "border-b border-gray-100" : ""}>
-                      <td className="py-4 pr-4">
-                        <p className="font-bold text-black text-base">{item.title}</p>
-                        <p className="text-gray-500 text-xs mt-1">{item.description}</p>
+                <tbody className="divide-y divide-zinc-200">
+                  {items.map((item) => (
+                    <tr key={item.id}>
+                      <td className="py-4 px-4 align-top">
+                        <p className="font-bold text-zinc-900">{item.title}</p>
+                        {item.description && <p className="text-zinc-500 text-xs mt-1">{item.description}</p>}
                       </td>
-                      <td className="py-4 text-right text-black font-mono">{item.qty}</td>
-                      <td className="py-4 text-right text-black font-mono">${item.rate.toFixed(2)}</td>
-                      <td className="py-4 text-right text-black font-mono font-bold">${item.total.toFixed(2)}</td>
+                      <td className="py-4 px-4 text-right text-zinc-800 font-mono align-top">{item.qty}</td>
+                      <td className="py-4 px-4 text-right text-zinc-800 font-mono align-top">${item.rate.toFixed(2)}</td>
+                      <td className="py-4 px-4 text-right text-zinc-900 font-mono font-bold align-top">${item.total.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="border-b border-gray-200 mt-2"></div>
             </div>
 
-            {/* Bottom Section */}
-            <div className="flex flex-col md:flex-row justify-between mb-16 gap-8">
-              <div className="w-full md:w-1/2">
-                <p className="text-[#166534] font-semibold text-sm mb-1">Notes:</p>
-                <p className="text-black text-sm whitespace-pre-wrap">{invoice.notes || `Thank you for choosing ${settings.company_name}.`}</p>
+            <div className="flex flex-col md:flex-row justify-between mb-12 gap-8">
+              <div className="w-full md:w-1/2 order-2 md:order-1">
+                <p className="font-semibold text-zinc-500 text-sm mb-2">Notes:</p>
+                <p className="text-zinc-700 text-sm whitespace-pre-wrap">{invoice.notes || `Thank you for choosing ${settings.company_name}.`}</p>
               </div>
               
-              <div className="w-full md:w-1/3">
-                <table className="w-full text-right text-sm">
+              <div className="w-full md:w-1/2 flex md:justify-end order-1 md:order-2">
+                <table className="w-full md:w-72 text-right text-sm">
                   <tbody>
                     <tr>
-                      <td className="pb-3 text-[#166534] font-semibold">Subtotal</td>
-                      <td className="pb-3 font-mono font-medium text-black">${subtotal.toFixed(2)}</td>
+                      <td className="pb-3 text-zinc-600">Subtotal</td>
+                      <td className="pb-3 font-mono font-medium text-zinc-900">${subtotal.toFixed(2)}</td>
                     </tr>
                     <tr>
-                      <td className="pb-3 text-[#166534] font-semibold">Tax ({invoice.tax_rate}%)</td>
-                      <td className="pb-3 font-mono font-medium text-black">${hst.toFixed(2)}</td>
+                      <td className="pb-3 text-zinc-600 border-b border-zinc-200">Tax ({invoice.tax_rate}%)</td>
+                      <td className="pb-3 font-mono font-medium text-zinc-900 border-b border-zinc-200">${hst.toFixed(2)}</td>
                     </tr>
                     <tr className="text-lg">
-                      <td className="pt-3 text-[#166534] font-bold">Amount Due</td>
-                      <td className="pt-3 font-mono font-bold text-black">${total.toFixed(2)}</td>
+                      <td className="pt-4 font-bold text-zinc-900">Amount Due</td>
+                      <td className="pt-4 font-mono font-bold text-zinc-900">${total.toFixed(2)}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* Signature Block */}
             {status === 'draft' ? (
-              <div className="no-print bg-gray-50 border border-gray-200 p-6 rounded-lg max-w-lg">
+              <div className="no-print bg-zinc-50 border border-zinc-200 p-4 md:p-6 rounded-lg w-full">
                 <div className="flex justify-between items-center mb-3">
-                  <span className="font-bold text-sm text-black">
+                  <span className="font-bold text-sm text-zinc-900 flex items-center gap-2">
+                    <PenTool className="w-4 h-4 text-zinc-500"/>
                     Authorization {settings.require_signature ? "(Required)" : "(Optional)"}
                   </span>
-                  {hasSignature && <button onClick={() => { canvasRef.current?.getContext('2d')?.clearRect(0,0,800,150); setHasSignature(false); }} className="text-xs text-red-600 hover:underline font-semibold">Clear</button>}
+                  {hasSignature && <button onClick={() => { canvasRef.current?.getContext('2d')?.clearRect(0,0,800,150); setHasSignature(false); }} className="text-xs text-zinc-500 hover:text-red-600 hover:underline font-semibold">Clear Pad</button>}
                 </div>
-                <div className="border-2 border-dashed border-gray-300 bg-white h-32 w-full mb-4 cursor-crosshair">
-                  <canvas ref={canvasRef} width={800} height={128} className="w-full h-full touch-none" onMouseDown={startDrawing} onMouseUp={stopDrawing} onMouseOut={stopDrawing} onMouseMove={draw} onTouchStart={startDrawing} onTouchEnd={stopDrawing} onTouchMove={draw} />
+                <div className="border border-zinc-300 bg-white h-32 w-full mb-6 cursor-crosshair rounded-md overflow-hidden">
+                  {/* touch-none is critical here */}
+                  <canvas ref={canvasRef} width={800} height={150} className="w-full h-full touch-none" onMouseDown={startDrawing} onMouseUp={stopDrawing} onMouseOut={stopDrawing} onMouseMove={draw} onTouchStart={startDrawing} onTouchEnd={stopDrawing} onTouchMove={draw} />
                 </div>
-                <Button onClick={handleApprove} disabled={isApproving} className="w-full bg-black text-white hover:bg-gray-800 font-bold h-12">
-                  {isApproving ? "Processing..." : "Authorize Document"}
+                <Button onClick={handleApprove} disabled={isApproving} className="w-full bg-zinc-900 text-white hover:bg-black font-bold h-12">
+                  {isApproving ? "Processing..." : "Approve & Authorize Document"}
                 </Button>
               </div>
             ) : (
               invoice.signature_data && (
-                <div className="mt-16 inline-block">
-                  <img src={invoice.signature_data} alt="Signature" className="max-h-20 mix-blend-multiply mb-1" />
-                  <div className="w-64 border-b border-black"></div>
-                  <p className="font-bold text-xs uppercase tracking-wider text-[#166534] mt-2">Authorized Signature</p>
+                <div className="mt-8 pt-8 break-inside-avoid w-full">
+                  <p className="font-bold text-sm uppercase tracking-wider text-zinc-500 mb-4 block">Authorized Signature</p>
+                  <div className="w-full max-w-[250px]">
+                    <img src={invoice.signature_data} alt="Client Signature" className="max-h-20 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
+                    <p className="text-xs text-zinc-400 mt-2 font-medium">Signed electronically by client.</p>
+                  </div>
                 </div>
               )
             )}
@@ -2452,6 +2490,58 @@ export function cn(...inputs: ClassValue[]) {
 
 
 ================================================
+FILE: middleware.ts
+================================================
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+// Simple in-memory rate limit map (clears on server restart, perfect for local Docker)
+const rateLimitMap = new Map();
+
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // 1. CSRF Protection for API mutations
+  if (request.method !== 'GET' && pathname.startsWith('/api/')) {
+    const origin = request.headers.get('origin') || '';
+    const host = request.headers.get('host') || '';
+    // Block requests that don't originate from your own domain
+    if (origin && !origin.includes(host)) {
+      return NextResponse.json({ error: 'CSRF blocked' }, { status: 403 });
+    }
+  }
+
+  // 2. Rate Limiting for Public Invoice Endpoints
+  if (pathname.startsWith('/p/') || pathname.includes('/approve')) {
+    const ip = request.headers.get('x-forwarded-for') || request.ip || '127.0.0.1';
+    const now = Date.now();
+    const windowMs = 60 * 1000; // 1 minute window
+    const maxReqs = 60; // Max 60 requests per minute per IP
+
+    const record = rateLimitMap.get(ip) || { count: 0, startTime: now };
+    
+    if (now - record.startTime > windowMs) {
+      record.count = 1;
+      record.startTime = now;
+    } else {
+      record.count++;
+    }
+    
+    rateLimitMap.set(ip, record);
+
+    if (record.count > maxReqs) {
+      return NextResponse.json({ error: 'Rate limit exceeded. Please slow down.' }, { status: 429 });
+    }
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/p/:path*', '/api/:path*'],
+};
+
+================================================
 FILE: next-env.d.ts
 ================================================
 /// <reference types="next" />
@@ -2468,11 +2558,10 @@ FILE: next.config.ts
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-};
+  allowedDevOrigins: ['10.0.0.36', 'localhost'],
+} as any;
 
 export default nextConfig;
-
 
 ================================================
 FILE: package.json

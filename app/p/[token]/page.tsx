@@ -2,7 +2,10 @@ import db from "@/lib/db";
 import ClientInvoice from "@/components/client/ClientInvoice";
 import { notFound } from "next/navigation";
 
-export const dynamic = 'force-dynamic'; // Claude's Fix
+// Aggressive Anti-Caching Headers (Claude's Polish #8)
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 function getInvoiceData(token: string) {
   const invoice = db.prepare('SELECT * FROM invoices WHERE token = ?').get(token);
