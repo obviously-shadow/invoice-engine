@@ -38,7 +38,7 @@ function getFilesContent(dir) {
     }
     return content;
 }
-
+//
 const outputFile = 'project-context.txt';
 console.log('📦 Bundling project context...');
 let output = '=== NEPEAN INVOICE ENGINE : FILE TREE ===\n\n';
