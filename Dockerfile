@@ -20,7 +20,9 @@ RUN npm run build
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# Fix permissions for both the database folder AND the Next.js cache folder
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
+RUN chown -R nextjs:nodejs /app/.next
 
 USER nextjs
 EXPOSE 3000
@@ -28,5 +30,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# MAGIC TRICK: Auto-create tables on boot, then start the server.
 CMD ["sh", "-c", "node db/init.mjs && npm start"]
