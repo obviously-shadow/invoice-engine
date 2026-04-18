@@ -4,9 +4,23 @@ import { Button } from "@/components/ui/button";
 import SettingsForm from "@/components/admin/SettingsForm";
 import { ArrowLeft } from "lucide-react";
 
+export const dynamic = 'force-dynamic';
+
+function getSettingsData() {
+  try {
+    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").get();
+    if (!tableCheck) return { settings: {}, templates: [] };
+
+    const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+    const templates = db.prepare('SELECT * FROM job_templates').all();
+    return { settings, templates };
+  } catch (error) {
+    return { settings: {}, templates: [] };
+  }
+}
+
 export default function SettingsPage() {
-  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
-  const templates = db.prepare('SELECT * FROM job_templates').all();
+  const { settings, templates } = getSettingsData();
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50 p-4 md:p-8 font-sans">

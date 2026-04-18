@@ -2,13 +2,13 @@ import db from "@/lib/db";
 import ClientInvoice from "@/components/client/ClientInvoice";
 import { notFound } from "next/navigation";
 
-// Aggressive Anti-Caching Headers (Claude's Polish #8)
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 function getInvoiceData(token: string) {
-  const invoice = db.prepare('SELECT * FROM invoices WHERE token = ?').get(token);
+  // Use 'as any' to bypass the strict type check during the DB fetch
+  const invoice = db.prepare('SELECT * FROM invoices WHERE token = ?').get(token) as any;
   if (!invoice) return null;
 
   const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ?').all(invoice.id);
@@ -19,7 +19,7 @@ function getInvoiceData(token: string) {
 
 export default async function InvoicePage({ params }: { params: Promise<{ token: string }> }) {
   const resolvedParams = await params;
-  const data = getInvoiceData(resolvedParams.token) as any;
+  const data = getInvoiceData(resolvedParams.token);
 
   if (!data || !data.invoice) {
     notFound();

@@ -95,7 +95,6 @@ export default function ClientInvoice({
       });
       
       if (res.ok) {
-        // Reload to fetch the exact signed_at timestamp from the server
         window.location.reload();
       } else if (res.status === 409) {
         alert("This document has already been signed or updated.");
@@ -192,13 +191,13 @@ export default function ClientInvoice({
                 </h2>
                 <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-zinc-800 md:ml-auto md:max-w-[250px]">
                   <div className="font-semibold text-zinc-500 md:text-right">Date:</div>
-                  <div className="md:text-right">{issueDate}</div>
+                  <div className="md:text-right" suppressHydrationWarning>{issueDate}</div>
                   <div className="font-semibold text-zinc-500 md:text-right">Invoice #:</div>
                   <div className="md:text-right font-mono">{invoiceNumber}</div>
                   <div className="font-semibold text-zinc-500 md:text-right">Terms:</div>
                   <div className="md:text-right">{settings.payment_terms}</div>
                   <div className="font-semibold text-zinc-500 md:text-right">Due Date:</div>
-                  <div className="md:text-right font-medium">{dueDate}</div>
+                  <div className="md:text-right font-medium" suppressHydrationWarning>{dueDate}</div>
                 </div>
               </div>
             </div>
@@ -298,7 +297,7 @@ export default function ClientInvoice({
                     {invoice.signature_data && (
                       <img src={invoice.signature_data} alt="Client Signature" className="max-h-24 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
                     )}
-                    <p className="text-xs text-zinc-500 mt-2 font-medium">
+                    <p className="text-xs text-zinc-500 mt-2 font-medium" suppressHydrationWarning>
                       Signed electronically by client {formattedSignedDate ? `on ${formattedSignedDate}` : ''}.
                     </p>
                   </div>

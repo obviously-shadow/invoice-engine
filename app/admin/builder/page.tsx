@@ -1,9 +1,11 @@
 import db from "@/lib/db";
 import InvoiceBuilder from "@/components/admin/InvoiceBuilder";
 
+export const dynamic = 'force-dynamic';
+
 function getData() {
   const templates = db.prepare('SELECT * FROM job_templates').all();
-  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
   return { templates, settings };
 }
 

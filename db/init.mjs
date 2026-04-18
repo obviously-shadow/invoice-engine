@@ -1,8 +1,20 @@
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
 
 console.log('Starting Database Initialization...');
 
-const db = new Database('nepean.db');
+// Check if running in Docker to use the correct path
+const isDocker = process.env.RUNNING_IN_DOCKER === 'true';
+const dbDir = isDocker ? '/app/data' : process.cwd();
+
+if (isDocker && !fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const dbPath = path.join(dbDir, 'engine.db');
+const db = new Database(dbPath);
+
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
@@ -71,7 +83,7 @@ const insertSettings = db.prepare(`
     id, company_name, business_number, business_phone, business_email, 
     business_website, business_address, tax_rate, payment_terms, require_signature, is_setup
   ) VALUES (
-    1, 'Nepean Handyman Services', '', '', '', '', '', 13.00, 'Net 30', 0, 0
+    1, 'The Engine', '', '', '', '', '', 13.00, 'Net 30', 0, 0
   )
 `);
 insertSettings.run();

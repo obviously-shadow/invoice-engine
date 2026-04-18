@@ -28,7 +28,12 @@ function getDashboardData() {
   `).get() as any;
 
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
-  return { invoices, ytdRevenue: revenueRow.total || 0, settings };
+  
+  return { 
+    invoices, 
+    ytdRevenue: revenueRow?.total || 0, 
+    settings
+  };
 }
 
 export default function AdminLedger() {
@@ -38,7 +43,7 @@ export default function AdminLedger() {
   const isWarning = percentToThreshold > 80;
 
   return (
-    <div className="min-h-screen bg-black text-zinc-50 p-4 md:p-8">
+    <div className="min-h-screen bg-black text-zinc-50 p-4 md:p-8 font-sans">
       <div className="max-w-6xl mx-auto space-y-8">
         <header className="flex flex-col md:flex-row justify-between md:items-end gap-6">
           <div className="space-y-1">
@@ -105,7 +110,7 @@ export default function AdminLedger() {
               <TableBody>
                 {data.invoices.map((invoice: any) => (
                   <TableRow key={invoice.id} className="border-white/5 hover:bg-white/5 transition-colors">
-                    <TableCell className="font-medium text-zinc-300 py-5 pl-4">
+                    <TableCell className="font-medium text-zinc-300 py-5 pl-4" suppressHydrationWarning>
                       {new Date(invoice.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="font-medium text-zinc-200">

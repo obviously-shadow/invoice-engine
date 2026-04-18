@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import Link from "next/link";
 import { ArrowLeft, Copy, Layers, Plus, X, Send, CheckCircle2 } from "lucide-react";
 
@@ -80,6 +80,31 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
       console.error(error);
     }
     setIsGenerating(false);
+  };
+
+  const handleCopyLink = () => {
+    if (!generatedToken) return;
+    const url = `${window.location.origin}/p/${generatedToken}`;
+    
+    // Fallback for HTTP/LAN connections
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url);
+    } else {
+      const textArea = document.createElement("textarea");
+      textArea.value = url;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand('copy');
+      } catch (err) {
+        console.error('Fallback copy failed', err);
+      }
+      document.body.removeChild(textArea);
+    }
+    
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -217,9 +242,10 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
 
         <Dialog open={!!generatedToken} onOpenChange={() => {
           setGeneratedToken(null);
-          window.location.href = '/admin'; // Force back to ledger after close
+          window.location.href = '/admin';
         }}>
           <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-50 sm:max-w-md p-0 overflow-hidden shadow-2xl">
+            <DialogDescription className="sr-only">Invoice Link Generated</DialogDescription>
             <div className="bg-emerald-500/10 p-8 pb-6 border-b border-zinc-800 text-center">
               <div className="w-14 h-14 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle2 className="w-7 h-7 text-emerald-400" />
@@ -231,12 +257,7 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
               <div className="border border-zinc-700 bg-black rounded-lg p-4 text-sm font-mono truncate text-zinc-300 select-all">
                 {generatedToken ? `${window.location.origin}/p/${generatedToken}` : ''}
               </div>
-              <Button onClick={() => {
-                if (!generatedToken) return;
-                navigator.clipboard.writeText(`${window.location.origin}/p/${generatedToken}`);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }} className="w-full bg-white text-zinc-950 h-12 font-bold">
+              <Button onClick={handleCopyLink} className="w-full bg-white text-zinc-950 h-12 font-bold">
                 {copied ? "Copied!" : "Copy Link"}
               </Button>
             </div>
