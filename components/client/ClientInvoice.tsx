@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Printer, PenTool } from "lucide-react";
+import { Printer, PenTool, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function ClientInvoice({ 
   invoice, 
@@ -20,9 +20,15 @@ export default function ClientInvoice({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
 
+  // Math logic: TBD items are skipped in subtotal, but flagged for UI
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const hst = subtotal * (invoice.tax_rate / 100);
   const total = subtotal + hst;
+  const hasTbdItems = items.some(item => item.is_tbd === 1);
+  const isWholeInvoiceTbd = invoice.is_tbd === 1;
+
+  // Group items
+  const groups = Array.from(new Set(items.map(item => item.group_name)));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -99,8 +105,6 @@ export default function ClientInvoice({
       } else if (res.status === 409) {
         alert("This document has already been signed or updated.");
         window.location.reload();
-      } else if (res.status === 413) {
-        alert("Signature is too large. Please clear and try a simpler signature.");
       } else {
         alert("Error saving signature. Please try again.");
       }
@@ -140,143 +144,210 @@ export default function ClientInvoice({
           @page { margin: 1cm; size: auto; }
         }
       `}} />
-      <div className="min-h-screen bg-zinc-100 text-zinc-900 py-4 md:py-8 px-2 md:px-4 flex justify-center font-sans">
-        <div className="w-full max-w-4xl">
+      <div className="min-h-screen bg-white md:bg-zinc-100 text-zinc-950 py-0 md:py-12 px-0 md:px-4 flex justify-center font-sans selection:bg-zinc-300">
+        <div className="w-full max-w-[850px]">
           
-          <div className="no-print mb-6 w-full flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="no-print mb-8 w-full flex flex-col md:flex-row justify-between items-center gap-4 px-4 md:px-0 mt-4 md:mt-0">
             <div className="w-full">
               {status === 'approved' && (
-                <div className="p-4 bg-emerald-50 border-l-4 border-emerald-600 text-emerald-800 shadow-sm font-medium text-sm md:text-base">
-                  Estimate Approved. We have received your authorization.
+                <div className="p-5 bg-emerald-100 border border-emerald-300 rounded-xl text-emerald-950 shadow-sm font-bold text-sm md:text-base flex items-center gap-3">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
+                  Estimate Approved & Authorized
                 </div>
               )}
               {status === 'paid' && (
-                <div className="p-4 bg-blue-50 border-l-4 border-blue-600 text-blue-800 shadow-sm font-medium text-sm md:text-base">
-                  Invoice Paid in Full. Thank you for your business.
+                <div className="p-5 bg-blue-100 border border-blue-300 rounded-xl text-blue-950 shadow-sm font-bold text-sm md:text-base flex items-center gap-3">
+                  <CheckCircle2 className="w-6 h-6 text-blue-600 shrink-0" />
+                  Invoice Paid in Full
+                </div>
+              )}
+              {status === 'draft' && (
+                <div className="p-5 bg-white border border-zinc-300 rounded-xl text-zinc-900 shadow-sm font-semibold text-sm md:text-base flex items-center gap-3">
+                  <AlertCircle className="w-6 h-6 text-amber-500 shrink-0" />
+                  Action Required: Please review and approve this document below.
                 </div>
               )}
             </div>
             
             {(status === 'draft' || status === 'paid' || status === 'approved') && (
-              <Button onClick={() => window.print()} variant="outline" className="bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-50 shrink-0 w-full md:w-auto">
-                <Printer className="w-4 h-4 mr-2" /> Print / Save PDF
+              <Button onClick={() => window.print()} variant="outline" className="bg-white border-2 border-zinc-300 text-zinc-900 hover:bg-zinc-50 shrink-0 w-full md:w-auto h-14 md:h-12 px-6 rounded-xl shadow-sm font-bold">
+                <Printer className="w-5 h-5 mr-2 text-zinc-600" /> Print Document
               </Button>
             )}
           </div>
 
-          <div className="print-area bg-white shadow-2xl p-6 md:p-16 border border-zinc-200 relative overflow-hidden">
+          <div className="print-area bg-white md:shadow-2xl md:rounded-xl p-8 md:p-16 border-t md:border border-zinc-200 relative overflow-hidden z-10 min-h-screen md:min-h-0">
             
             {status === 'paid' && (
-              <div className="absolute top-24 right-12 opacity-10 pointer-events-none rotate-[-15deg]">
-                <span className="text-6xl md:text-8xl font-black border-8 border-black p-4 inline-block text-black uppercase tracking-widest">
+              <div className="absolute top-1/4 right-0 left-0 bottom-0 flex justify-center opacity-[0.04] pointer-events-none rotate-[-15deg] z-0 overflow-hidden">
+                <span className="text-[150px] font-black border-[16px] border-black px-12 py-4 inline-block text-black uppercase tracking-widest rounded-[3rem] h-fit">
                   PAID
                 </span>
               </div>
             )}
 
-            <div className="flex flex-col md:flex-row justify-between items-start mb-8 md:mb-12 border-b border-zinc-200 pb-8">
+            {status === 'approved' && (
+              <div className="absolute top-1/4 right-0 left-0 bottom-0 flex justify-center opacity-[0.03] pointer-events-none rotate-[-15deg] z-0 overflow-hidden">
+                <span className="text-[120px] font-black border-[16px] border-black px-12 py-4 inline-block text-black uppercase tracking-widest rounded-[3rem] h-fit">
+                  APPROVED
+                </span>
+              </div>
+            )}
+
+            <div className="flex flex-col md:flex-row justify-between items-start mb-16 relative z-10">
               <div className="w-full md:w-1/2">
-                <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 mb-4">{settings.company_name}</h1>
-                <div className="text-zinc-600 text-sm space-y-0.5">
-                  {settings.business_address && <p className="whitespace-pre-wrap mb-2">{settings.business_address}</p>}
+                <h1 className="text-3xl md:text-5xl font-black tracking-tight text-black mb-6">{settings.company_name}</h1>
+                <div className="text-zinc-800 text-sm space-y-1.5 leading-relaxed font-semibold">
+                  {settings.business_address && <p className="whitespace-pre-wrap mb-4 text-black">{settings.business_address}</p>}
                   {settings.business_phone && <p>{settings.business_phone}</p>}
                   {settings.business_email && <p>{settings.business_email}</p>}
                   {settings.business_website && <p>{settings.business_website}</p>}
-                  {settings.business_number && <p className="mt-2 text-xs font-mono">BN: {settings.business_number}</p>}
+                  {settings.business_number && <p className="mt-4 text-xs font-mono text-zinc-500">BN: {settings.business_number}</p>}
                 </div>
               </div>
-              <div className="mt-8 md:mt-0 text-left md:text-right w-full md:w-1/2">
-                <h2 className="text-3xl md:text-4xl font-light text-zinc-300 uppercase tracking-widest">
+              <div className="mt-12 md:mt-0 text-left md:text-right w-full md:w-1/2">
+                <h2 className="text-3xl md:text-4xl font-bold text-zinc-300 uppercase tracking-widest">
                   {status === 'draft' ? 'Estimate' : 'Invoice'}
                 </h2>
-                <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-zinc-800 md:ml-auto md:max-w-[250px]">
-                  <div className="font-semibold text-zinc-500 md:text-right">Date:</div>
-                  <div className="md:text-right" suppressHydrationWarning>{issueDate}</div>
-                  <div className="font-semibold text-zinc-500 md:text-right">Invoice #:</div>
-                  <div className="md:text-right font-mono">{invoiceNumber}</div>
-                  <div className="font-semibold text-zinc-500 md:text-right">Terms:</div>
-                  <div className="md:text-right">{settings.payment_terms}</div>
-                  <div className="font-semibold text-zinc-500 md:text-right">Due Date:</div>
-                  <div className="md:text-right font-medium" suppressHydrationWarning>{dueDate}</div>
+                <div className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4 text-sm text-black md:ml-auto md:max-w-[300px]">
+                  <div className="text-zinc-500 md:text-right font-bold uppercase tracking-wider text-xs">Date</div>
+                  <div className="md:text-right font-bold" suppressHydrationWarning>{issueDate}</div>
+                  
+                  <div className="text-zinc-500 md:text-right font-bold uppercase tracking-wider text-xs">Document #</div>
+                  <div className="md:text-right font-mono font-bold text-base">{invoiceNumber}</div>
+                  
+                  <div className="text-zinc-500 md:text-right font-bold uppercase tracking-wider text-xs">Terms</div>
+                  <div className="md:text-right font-bold">{settings.payment_terms}</div>
+                  
+                  <div className="text-zinc-500 md:text-right font-bold uppercase tracking-wider text-xs">Due Date</div>
+                  <div className="md:text-right font-bold text-red-600" suppressHydrationWarning>{dueDate}</div>
                 </div>
               </div>
             </div>
 
-            <div className="mb-10">
-              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider border-b-2 border-emerald-600 inline-block pb-1 mb-3">Bill To</h3>
-              <div className="text-zinc-800 text-sm leading-relaxed">
-                <p className="font-bold text-lg text-zinc-900">{invoice.client_name}</p>
-                {invoice.client_address && <p className="whitespace-pre-wrap mt-1">{invoice.client_address}</p>}
-                {invoice.client_email && <p className="mt-1">{invoice.client_email}</p>}
+            <div className="mb-14 relative z-10">
+              <h3 className="text-xs font-black text-black uppercase tracking-widest mb-4 border-b-[3px] border-black inline-block pb-1">Billed To</h3>
+              <div className="text-zinc-800 text-base leading-relaxed">
+                <p className="font-black text-xl text-black mb-1">{invoice.client_name}</p>
+                {invoice.client_address && <p className="whitespace-pre-wrap font-semibold">{invoice.client_address}</p>}
+                {invoice.client_email && <p className="font-semibold text-zinc-600">{invoice.client_email}</p>}
               </div>
             </div>
 
-            <div className="mb-10 overflow-x-auto w-full pb-4">
-              <table className="w-full text-left text-sm border-collapse min-w-[500px]">
-                <thead>
-                  <tr className="bg-zinc-100 text-zinc-700 border-b border-zinc-300">
-                    <th className="py-3 px-4 font-semibold">Description</th>
-                    <th className="py-3 px-4 font-semibold text-right w-24">Qty/Hrs</th>
-                    <th className="py-3 px-4 font-semibold text-right w-32">Rate</th>
-                    <th className="py-3 px-4 font-semibold text-right w-32">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200">
-                  {items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="py-4 px-4 align-top">
-                        <p className="font-bold text-zinc-900">{item.title}</p>
-                        {item.description && <p className="text-zinc-500 text-xs mt-1">{item.description}</p>}
-                      </td>
-                      <td className="py-4 px-4 text-right text-zinc-800 font-mono align-top">{item.qty}</td>
-                      <td className="py-4 px-4 text-right text-zinc-800 font-mono align-top">${item.rate.toFixed(2)}</td>
-                      <td className="py-4 px-4 text-right text-zinc-900 font-mono font-bold align-top">${item.total.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="mb-16 w-full relative z-10">
+              {groups.map((group, index) => (
+                <div key={index} className="mb-10">
+                  {group && (
+                    <div className="bg-zinc-100 px-4 py-2 mb-4 border-l-4 border-black">
+                      <h4 className="text-sm font-black uppercase tracking-widest text-black">{group}</h4>
+                    </div>
+                  )}
+                  <table className="w-full text-left text-sm border-collapse min-w-[500px] mb-4">
+                    {index === 0 && (
+                      <thead>
+                        <tr className="border-b-[3px] border-black text-black">
+                          <th className="py-4 px-2 font-black w-7/12 uppercase tracking-wider text-xs">Description</th>
+                          <th className="py-4 px-2 font-black text-right uppercase tracking-wider text-xs">Qty</th>
+                          <th className="py-4 px-2 font-black text-right uppercase tracking-wider text-xs">Rate</th>
+                          <th className="py-4 px-2 font-black text-right uppercase tracking-wider text-xs">Amount</th>
+                        </tr>
+                      </thead>
+                    )}
+                    <tbody>
+                      {items.filter(item => item.group_name === group).map((item) => (
+                        <tr key={item.id} className="border-b border-zinc-200 last:border-0">
+                          <td className="py-6 px-2 align-top">
+                            <p className="font-bold text-black text-base">{item.title}</p>
+                            {item.description && <p className="text-zinc-600 text-sm mt-1.5 leading-relaxed max-w-xl font-medium">{item.description}</p>}
+                          </td>
+                          <td className="py-6 px-2 text-right text-black font-bold align-top text-base">{item.qty}</td>
+                          <td className="py-6 px-2 text-right text-zinc-800 align-top font-semibold">
+                            {item.is_tbd === 1 ? (
+                              <span className="text-zinc-400 text-sm">--</span>
+                            ) : (
+                              `$${item.rate.toFixed(2)}`
+                            )}
+                          </td>
+                          <td className="py-6 px-2 text-right text-black font-bold align-top text-base">
+                            {item.is_tbd === 1 ? (
+                              <span className="bg-amber-100 text-amber-900 border-2 border-amber-400 px-2 py-1 rounded text-xs font-black tracking-widest uppercase shadow-sm">TBD</span>
+                            ) : (
+                              `$${item.total.toFixed(2)}`
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
             </div>
 
-            <div className="flex flex-col md:flex-row justify-between mb-12 gap-8">
-              <div className="w-full md:w-1/2 order-2 md:order-1">
-                <p className="font-semibold text-zinc-500 text-sm mb-2">Notes:</p>
-                <p className="text-zinc-700 text-sm whitespace-pre-wrap">{invoice.notes || `Thank you for choosing ${settings.company_name}.`}</p>
+            <div className="flex flex-col md:flex-row justify-between mb-16 gap-12 relative z-10">
+              <div className="w-full md:w-1/2 order-2 md:order-1 bg-zinc-50 p-6 rounded-xl border border-zinc-300 shadow-sm">
+                <p className="font-black text-black text-sm mb-3 uppercase tracking-widest">Notes & Instructions</p>
+                <p className="text-zinc-800 text-sm whitespace-pre-wrap leading-relaxed font-semibold">{invoice.notes || `Thank you for choosing ${settings.company_name}. We appreciate your business.`}</p>
               </div>
               
               <div className="w-full md:w-1/2 flex md:justify-end order-1 md:order-2">
-                <table className="w-full md:w-72 text-right text-sm">
+                <table className="w-full md:w-80 text-right text-sm">
                   <tbody>
-                    <tr>
-                      <td className="pb-3 text-zinc-600">Subtotal</td>
-                      <td className="pb-3 font-mono font-medium text-zinc-900">${subtotal.toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                      <td className="pb-3 text-zinc-600 border-b border-zinc-200">Tax ({invoice.tax_rate}%)</td>
-                      <td className="pb-3 font-mono font-medium text-zinc-900 border-b border-zinc-200">${hst.toFixed(2)}</td>
-                    </tr>
-                    <tr className="text-lg">
-                      <td className="pt-4 font-bold text-zinc-900">Amount Due</td>
-                      <td className="pt-4 font-mono font-bold text-zinc-900">${total.toFixed(2)}</td>
+                    {!isWholeInvoiceTbd && (
+                      <>
+                        <tr>
+                          <td className="pb-4 text-zinc-600 font-bold uppercase tracking-wider text-xs">Subtotal</td>
+                          <td className="pb-4 font-mono font-bold text-black text-lg">${subtotal.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td className="pb-6 text-zinc-600 font-bold uppercase tracking-wider text-xs border-b-2 border-zinc-300">Tax ({invoice.tax_rate}%)</td>
+                          <td className="pb-6 font-mono font-bold text-black text-lg border-b-2 border-zinc-300">${hst.toFixed(2)}</td>
+                        </tr>
+                      </>
+                    )}
+                    <tr className="text-2xl">
+                      <td className="pt-6 font-black text-black uppercase tracking-widest text-sm">
+                        Total Due
+                        {!isWholeInvoiceTbd && hasTbdItems && <div className="text-amber-600 text-[10px] uppercase mt-1 tracking-widest font-black">+ Variable Costs</div>}
+                      </td>
+                      <td className="pt-6 font-mono font-black text-black tracking-tight">
+                        {isWholeInvoiceTbd ? (
+                          <span className="bg-amber-100 text-amber-900 border-2 border-amber-400 px-3 py-1 rounded text-lg font-black tracking-widest uppercase shadow-sm">TBD</span>
+                        ) : (
+                          <>
+                            ${total.toFixed(2)}
+                            {hasTbdItems && <span className="text-amber-500 ml-2 text-lg">+ TBD</span>}
+                          </>
+                        )}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
+            {(hasTbdItems || isWholeInvoiceTbd) && (
+              <div className="mb-12 p-5 bg-amber-50 rounded-xl border-2 border-amber-300 text-sm text-amber-950 leading-relaxed font-semibold flex gap-4 relative z-10 shadow-sm">
+                <AlertCircle className="w-7 h-7 text-amber-600 shrink-0 mt-0.5" />
+                <p>
+                  <span className="font-black uppercase tracking-widest">Pricing Notice:</span> This document contains variable (TBD) pricing for certain requirements. The final total will be adjusted upon completion based on the actual material dimensions, hours, and scope of work specifications.
+                </p>
+              </div>
+            )}
+
             {status === 'draft' ? (
-              <div className="no-print bg-zinc-50 border border-zinc-200 p-4 md:p-6 rounded-lg w-full">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="font-bold text-sm text-zinc-900 flex items-center gap-2">
-                    <PenTool className="w-4 h-4 text-zinc-500"/>
-                    Authorization {settings.require_signature ? "(Required)" : "(Optional)"}
+              <div className="no-print bg-zinc-900 border border-black p-6 md:p-8 rounded-2xl w-full text-white shadow-2xl relative z-20 mt-12">
+                <div className="flex justify-between items-center mb-6">
+                  <span className="font-bold text-base text-white flex items-center gap-3">
+                    <PenTool className="w-5 h-5 text-emerald-400"/>
+                    Client Authorization {settings.require_signature ? "(Required)" : "(Optional)"}
                   </span>
-                  {hasSignature && <button onClick={clearSignature} className="text-xs text-zinc-500 hover:text-red-600 hover:underline font-semibold">Clear Pad</button>}
+                  {hasSignature && <button onClick={clearSignature} className="text-xs text-zinc-400 hover:text-red-400 hover:underline font-bold transition-colors uppercase tracking-wider">Clear Signature</button>}
                 </div>
-                <div className="border border-zinc-300 bg-white h-40 w-full mb-6 cursor-crosshair rounded-md overflow-hidden">
+                <div className="bg-white h-48 w-full mb-6 cursor-crosshair rounded-xl overflow-hidden shadow-inner border-4 border-zinc-800">
                   <canvas 
                     ref={canvasRef} 
                     width={800} 
-                    height={160} 
+                    height={192} 
                     className="w-full h-full touch-none" 
                     onPointerDown={startDrawing} 
                     onPointerMove={draw} 
@@ -285,20 +356,20 @@ export default function ClientInvoice({
                     onPointerCancel={stopDrawing}
                   />
                 </div>
-                <Button onClick={handleApprove} disabled={isApproving} className="w-full bg-zinc-900 text-white hover:bg-black font-bold h-12">
-                  {isApproving ? "Processing..." : "Approve & Authorize Document"}
+                <Button onClick={handleApprove} disabled={isApproving} className="w-full bg-emerald-600 text-white hover:bg-emerald-500 font-bold h-16 rounded-xl text-lg shadow-lg">
+                  {isApproving ? "Processing..." : "Approve & Sign Document"}
                 </Button>
               </div>
             ) : (
               (invoice.signature_data || invoice.signed_at) && (
-                <div className="mt-8 pt-8 break-inside-avoid w-full">
-                  <p className="font-bold text-sm uppercase tracking-wider text-zinc-500 mb-4 block">Authorized Signature</p>
+                <div className="mt-16 pt-12 border-t-[3px] border-zinc-200 break-inside-avoid w-full relative z-10">
+                  <p className="font-black text-xs uppercase tracking-widest text-zinc-500 mb-6 block">Authorized Signature</p>
                   <div className="w-full max-w-[300px]">
                     {invoice.signature_data && (
-                      <img src={invoice.signature_data} alt="Client Signature" className="max-h-24 object-contain mix-blend-multiply opacity-90 border-b border-zinc-900 pb-2 w-full" />
+                      <img src={invoice.signature_data} alt="Client Signature" className="max-h-32 object-contain mix-blend-multiply opacity-90 border-b-[3px] border-zinc-300 pb-4 w-full" />
                     )}
-                    <p className="text-xs text-zinc-500 mt-2 font-medium" suppressHydrationWarning>
-                      Signed electronically by client {formattedSignedDate ? `on ${formattedSignedDate}` : ''}.
+                    <p className="text-[11px] text-zinc-500 mt-3 font-bold uppercase tracking-wider" suppressHydrationWarning>
+                      Signed electronically {formattedSignedDate ? `on ${formattedSignedDate}` : ''}.
                     </p>
                   </div>
                 </div>

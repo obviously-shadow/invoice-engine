@@ -15,7 +15,6 @@ const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// Auto-migrate tables. This guarantees the DB is always ready, completely fixing the build process.
 db.exec(`
   CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,6 +57,8 @@ db.exec(`
     rate REAL NOT NULL,
     total REAL NOT NULL,
     is_taxable BOOLEAN DEFAULT 1,
+    is_tbd BOOLEAN DEFAULT 0,
+    group_name TEXT DEFAULT '',
     FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
   );
 
@@ -75,6 +76,11 @@ db.exec(`
     is_setup BOOLEAN NOT NULL DEFAULT 0
   );
 `);
+
+// Graceful auto-migrations for existing databases
+try { db.exec("ALTER TABLE invoice_items ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE invoice_items ADD COLUMN group_name TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE invoices ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
 
 const insertSettings = db.prepare(`
   INSERT OR IGNORE INTO settings (

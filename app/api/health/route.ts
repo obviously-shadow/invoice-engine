@@ -4,30 +4,30 @@ import pkg from '@/package.json';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const localSha = process.env.IMAGE_SHA || "development";
-  const repo = "umarkhorami/invoice-engine"; // Use your Docker handle
   let updateAvailable = false;
+  let latestVersion = pkg.version;
 
-  // Only check Docker Hub if we are actually running in production
-  if (localSha !== "development") {
-    try {
-      const response = await fetch(`https://hub.docker.com/v2/repositories/${repo}/tags/latest`, {
-        next: { revalidate: 300 } // Cache results for 5 minutes
-      });
-      const remote = await response.json();
-      
-      if (remote.images && remote.images[0].digest !== localSha) {
+  try {
+    // Check the raw package.json from the official repository
+    const response = await fetch('https://raw.githubusercontent.com/obviously-shadow/invoice-engine/main/package.json', {
+      next: { revalidate: 3600 } // Cache for 1 hour
+    });
+    
+    if (response.ok) {
+      const remotePkg = await response.json();
+      if (remotePkg.version && remotePkg.version !== pkg.version) {
         updateAvailable = true;
+        latestVersion = remotePkg.version;
       }
-    } catch (e) {
-      console.error("Docker Hub check failed:", e);
     }
+  } catch (e) {
+    console.error("Version check failed:", e);
   }
 
   return NextResponse.json({
     status: 'healthy',
-    version: pkg.version,
-    localSha,
+    currentVersion: pkg.version,
+    latestVersion,
     updateAvailable
   });
 }
