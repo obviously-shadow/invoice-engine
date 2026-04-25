@@ -13,10 +13,11 @@ if (isDocker && !fs.existsSync(dbDir)) {
 }
 
 const dbPath = path.join(dbDir, 'engine.db');
-const db = new Database(dbPath);
+const db = new Database(dbPath, { timeout: 10000 });
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.pragma('busy_timeout = 10000');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS clients (
@@ -48,7 +49,8 @@ db.exec(`
     notes TEXT,
     signature_data TEXT,
     signed_at DATETIME DEFAULT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_tbd BOOLEAN DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS invoice_items (
@@ -60,6 +62,8 @@ db.exec(`
     rate REAL NOT NULL,
     total REAL NOT NULL,
     is_taxable BOOLEAN DEFAULT 1,
+    is_tbd BOOLEAN DEFAULT 0,
+    group_name TEXT DEFAULT '',
     FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
   );
 
@@ -77,6 +81,11 @@ db.exec(`
     is_setup BOOLEAN NOT NULL DEFAULT 0
   );
 `);
+
+// Graceful auto-migrations for existing databases
+try { db.exec("ALTER TABLE invoice_items ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE invoice_items ADD COLUMN group_name TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE invoices ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
 
 const insertSettings = db.prepare(`
   INSERT OR IGNORE INTO settings (
