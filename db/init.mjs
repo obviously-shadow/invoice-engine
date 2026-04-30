@@ -4,7 +4,6 @@ import path from 'path';
 
 console.log('Starting Database Initialization...');
 
-// Check if running in Docker to use the correct path
 const isDocker = process.env.RUNNING_IN_DOCKER === 'true';
 const dbDir = isDocker ? '/app/data' : process.cwd();
 
@@ -86,6 +85,9 @@ db.exec(`
 try { db.exec("ALTER TABLE invoice_items ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE invoice_items ADD COLUMN group_name TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE invoices ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
+// NEW MIGRATIONS
+try { db.exec("ALTER TABLE invoices ADD COLUMN is_archived BOOLEAN DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE invoices ADD COLUMN display_number INTEGER"); } catch (e) {}
 
 const insertSettings = db.prepare(`
   INSERT OR IGNORE INTO settings (

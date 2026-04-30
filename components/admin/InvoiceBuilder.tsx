@@ -9,11 +9,35 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import Link from "next/link";
 import { ArrowLeft, Layers, Plus, X, Send, CheckCircle2, Tag } from "lucide-react";
 
-export default function InvoiceBuilder({ templates, settings }: { templates: any[], settings: any }) {
-  const [activeInvoice, setActiveInvoice] = useState<any[]>([]);
-  const [clientName, setClientName] = useState("");
-  const [clientEmail, setClientEmail] = useState("");
-  const [clientAddress, setClientAddress] = useState("");
+export default function InvoiceBuilder({ 
+  templates, 
+  settings,
+  initialInvoice,
+  initialItems
+}: { 
+  templates: any[], 
+  settings: any,
+  initialInvoice?: any,
+  initialItems?: any[]
+}) {
+  const isEditing = !!initialInvoice;
+
+  // If loading an existing invoice, treat all items as custom to lock in their saved prices
+  const mappedInitialItems = initialItems?.map(item => ({
+    title: item.title,
+    description: item.description,
+    qty: item.qty,
+    price: item.rate, 
+    isCustom: true,
+    is_tbd: item.is_tbd === 1,
+    group_name: item.group_name,
+    uniqueId: Math.random()
+  })) || [];
+
+  const [activeInvoice, setActiveInvoice] = useState<any[]>(mappedInitialItems);
+  const [clientName, setClientName] = useState(initialInvoice?.client_name || "");
+  const [clientEmail, setClientEmail] = useState(initialInvoice?.client_email || "");
+  const [clientAddress, setClientAddress] = useState(initialInvoice?.client_address || "");
   
   const [currentGroup, setCurrentGroup] = useState("");
   const [customTitle, setCustomTitle] = useState("");
@@ -22,7 +46,7 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
   const [customPrice, setCustomPrice] = useState("");
   
   const [isTBD, setIsTBD] = useState(false);
-  const [invoiceIsTBD, setInvoiceIsTBD] = useState(false);
+  const [invoiceIsTBD, setInvoiceIsTBD] = useState(initialInvoice?.is_tbd === 1);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
@@ -88,8 +112,11 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
 
     setIsGenerating(true);
     try {
-      const res = await fetch('/api/invoices', {
-        method: 'POST',
+      const endpoint = isEditing ? `/api/invoices/${initialInvoice.token}` : '/api/invoices';
+      const method = isEditing ? 'PUT' : 'POST';
+
+      const res = await fetch(endpoint, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           client_name: clientName,
@@ -97,14 +124,14 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
           client_address: clientAddress,
           items: activeInvoice, 
           tax_rate: settings.tax_rate,
-          notes: "",
+          notes: initialInvoice?.notes || "",
           is_tbd: invoiceIsTBD
         })
       });
       const data = await res.json();
       
-      if (data.success) {
-        setGeneratedToken(data.token);
+      if (res.ok) {
+        setGeneratedToken(isEditing ? initialInvoice.token : data.token);
       }
     } catch (error) {
       console.error(error);
@@ -138,7 +165,9 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
         
         <header className="flex justify-between items-end border-b border-zinc-800 pb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-50 mb-1">Document Builder</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-50 mb-1">
+              {isEditing ? "Edit Document" : "Document Builder"}
+            </h1>
             <p className="text-zinc-500 text-sm tracking-wide uppercase">{settings.company_name}</p>
           </div>
           <Link href="/admin">
@@ -352,7 +381,7 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
                   disabled={isGenerating || activeInvoice.length === 0}
                   className="w-full bg-emerald-600 hover:bg-emerald-500 text-white h-14 text-lg font-bold shadow-lg shadow-emerald-900/20"
                 >
-                  {isGenerating ? "Processing..." : <><Send className="w-5 h-5 mr-2" /> Generate Secure Link</>}
+                  {isGenerating ? "Processing..." : <><Send className="w-5 h-5 mr-2" /> {isEditing ? "Save & Update Link" : "Generate Secure Link"}</>}
                 </Button>
               </CardFooter>
             </Card>
@@ -369,7 +398,7 @@ export default function InvoiceBuilder({ templates, settings }: { templates: any
               <div className="w-14 h-14 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle2 className="w-7 h-7 text-emerald-400" />
               </div>
-              <DialogTitle className="text-2xl font-bold">Link Generated</DialogTitle>
+              <DialogTitle className="text-2xl font-bold">Link {isEditing ? "Updated" : "Generated"}</DialogTitle>
             </div>
             
             <div className="p-6 space-y-5 bg-zinc-950">

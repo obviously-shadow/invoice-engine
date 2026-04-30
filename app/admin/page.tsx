@@ -12,10 +12,11 @@ export const dynamic = 'force-dynamic';
 
 function getDashboardData() {
   const invoices = db.prepare(`
-    SELECT i.id, i.token, i.status, i.client_name, i.created_at, 
+    SELECT i.id, i.token, i.status, i.client_name, i.created_at, i.display_number, 
            SUM(items.total) as subtotal
     FROM invoices i
     LEFT JOIN invoice_items items ON i.id = items.invoice_id
+    WHERE IFNULL(i.is_archived, 0) = 0
     GROUP BY i.id
     ORDER BY i.created_at DESC
   `).all();
@@ -24,7 +25,7 @@ function getDashboardData() {
     SELECT SUM(items.total) as total 
     FROM invoices i 
     JOIN invoice_items items ON i.id = items.invoice_id 
-    WHERE i.status = 'paid'
+    WHERE i.status = 'paid' AND IFNULL(i.is_archived, 0) = 0
   `).get() as any;
 
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
@@ -100,17 +101,23 @@ export default function AdminLedger() {
             <Table>
               <TableHeader>
                 <TableRow className="border-white/5 hover:bg-transparent bg-black/40">
+                  <TableHead className="text-zinc-500 font-semibold h-12 w-20">Doc #</TableHead>
                   <TableHead className="text-zinc-500 font-semibold h-12">Date Created</TableHead>
                   <TableHead className="text-zinc-500 font-semibold h-12">Client</TableHead>
                   <TableHead className="text-zinc-500 font-semibold h-12">Status</TableHead>
-                  <TableHead className="text-right text-zinc-500 font-semibold h-12">Amount (Pre-Tax)</TableHead>
-                  <TableHead className="text-right text-zinc-500 font-semibold h-12 pr-6">Client Actions</TableHead>
+                  <TableHead className="text-right text-zinc-500 font-semibold h-12">Amount</TableHead>
+                  <TableHead className="text-right text-zinc-500 font-semibold h-12 pr-6">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.invoices.map((invoice: any) => (
+                {data.invoices.map((invoice: any) => {
+                  const displayId = invoice.display_number ? invoice.display_number : invoice.id.toString().padStart(6, '0');
+                  return (
                   <TableRow key={invoice.id} className="border-white/5 hover:bg-white/5 transition-colors">
-                    <TableCell className="font-medium text-zinc-300 py-5 pl-4" suppressHydrationWarning>
+                    <TableCell className="font-mono text-zinc-500 text-xs py-5 pl-4">
+                      #{displayId}
+                    </TableCell>
+                    <TableCell className="font-medium text-zinc-300 py-5" suppressHydrationWarning>
                       {new Date(invoice.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="font-medium text-zinc-200">
@@ -137,10 +144,10 @@ export default function AdminLedger() {
                       <ClientActionButtons token={invoice.token} status={invoice.status} />
                     </TableCell>
                   </TableRow>
-                ))}
+                )})}
                 {data.invoices.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-16 text-zinc-500">
+                    <TableCell colSpan={6} className="text-center py-16 text-zinc-500">
                       <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
                       <p className="text-lg">No documents generated yet.</p>
                     </TableCell>

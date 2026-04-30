@@ -15,12 +15,10 @@ const db = new Database(dbPath, { timeout: 10000 });
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
-db.pragma('busy_timeout = 10000'); // Force threads to wait for locks instead of throwing SQLITE_BUSY
+db.pragma('busy_timeout = 10000'); 
 
-// Detect if Next.js is currently running the production build process
 const isBuilding = process.env.npm_lifecycle_event === 'build' || process.env.NEXT_PHASE === 'phase-production-build';
 
-// Prevent multi-threaded build workers from colliding over database mutations
 if (!isBuilding) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS clients (
@@ -89,6 +87,9 @@ if (!isBuilding) {
   try { db.exec("ALTER TABLE invoice_items ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
   try { db.exec("ALTER TABLE invoice_items ADD COLUMN group_name TEXT DEFAULT ''"); } catch (e) {}
   try { db.exec("ALTER TABLE invoices ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
+  // NEW MIGRATIONS
+  try { db.exec("ALTER TABLE invoices ADD COLUMN is_archived BOOLEAN DEFAULT 0"); } catch (e) {}
+  try { db.exec("ALTER TABLE invoices ADD COLUMN display_number INTEGER"); } catch (e) {}
 
   const insertSettings = db.prepare(`
     INSERT OR IGNORE INTO settings (

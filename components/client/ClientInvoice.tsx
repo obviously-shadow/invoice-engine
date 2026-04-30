@@ -23,23 +23,19 @@ export default function ClientInvoice({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
 
-  // Math logic: TBD items are skipped in subtotal, but flagged for UI
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const hst = subtotal * (invoice.tax_rate / 100);
   const total = subtotal + hst;
   const hasTbdItems = items.some(item => item.is_tbd === 1);
   const isWholeInvoiceTbd = invoice.is_tbd === 1;
 
-  // Group items
   const groups = Array.from(new Set(items.map(item => item.group_name)));
 
-  // Setup canvas context based on current mode
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas && status === 'draft') {
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // Eraser gets a fat brush, pen gets a normal brush
         ctx.lineWidth = isEraser ? 25 : 3;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -95,7 +91,6 @@ export default function ClientInvoice({
 
   const toggleEnlarge = () => {
     setIsMobileSigOpen(!isMobileSigOpen);
-    // Changing canvas dimensions clears it natively, so we must reset the state
     setHasSignature(false);
   };
 
@@ -139,7 +134,9 @@ export default function ClientInvoice({
     }
   }
 
-  const invoiceNumber = `${invoice.id.toString().padStart(6, '0')}`;
+  const invoiceNumber = invoice.display_number 
+    ? invoice.display_number.toString() 
+    : invoice.id.toString().padStart(6, '0');
   
   let formattedSignedDate = "";
   if (invoice.signed_at) {
@@ -209,6 +206,9 @@ export default function ClientInvoice({
 
             <div className="flex flex-col md:flex-row justify-between items-start mb-12 md:mb-16 relative z-10">
               <div className="w-full md:w-1/2">
+                {/* UPGRADED: Massively increased sizing classes from h-16 to h-28/md:h-36 */}
+                <img src="/LOGO.png" alt="Company Logo" className="h-28 md:h-36 w-auto max-w-[300px] object-contain mb-6 print:mb-4" onError={(e) => e.currentTarget.style.display = 'none'} />
+                
                 <h1 className="text-3xl md:text-5xl font-black tracking-tight text-black mb-6">{settings.company_name}</h1>
                 <div className="text-zinc-800 text-sm space-y-1.5 leading-relaxed font-semibold break-words">
                   {settings.business_address && <p className="whitespace-pre-wrap mb-4 text-black">{settings.business_address}</p>}
@@ -358,11 +358,9 @@ export default function ClientInvoice({
                   </span>
                 </div>
 
-                {/* Desktop inline or Mobile Modal wrapper */}
                 <div className={isMobileSigOpen ? "fixed inset-0 z-[100] bg-zinc-950/95 backdrop-blur-sm p-4 sm:p-6 flex items-center justify-center" : ""}>
                    <div className={isMobileSigOpen ? "bg-zinc-900 p-5 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col h-[90vh] border border-zinc-800" : "w-full flex flex-col"}>
 
-                      {/* Mobile Modal Header */}
                       {isMobileSigOpen && (
                          <div className="flex justify-between items-center mb-5 text-white">
                             <span className="font-bold flex items-center gap-2 text-lg"><PenTool className="w-5 h-5 text-emerald-400"/> Sign Document</span>
@@ -370,7 +368,6 @@ export default function ClientInvoice({
                          </div>
                       )}
 
-                      {/* Toolbar */}
                       <div className="flex flex-wrap gap-2 mb-3 items-center">
                           <Button
                               type="button"
@@ -403,7 +400,6 @@ export default function ClientInvoice({
                           </Button>
                       </div>
 
-                      {/* Canvas Container */}
                       <div className={`relative w-full cursor-crosshair rounded-xl overflow-hidden shadow-inner border-4 ${isEraser ? 'border-amber-500' : 'border-zinc-800'} bg-white ${isMobileSigOpen ? 'flex-1 mb-4' : 'h-64 mb-6'}`}>
                         <canvas
                           ref={canvasRef}
@@ -418,7 +414,6 @@ export default function ClientInvoice({
                         />
                       </div>
 
-                      {/* Done Button for Modal */}
                       {isMobileSigOpen && (
                           <Button onClick={handleApprove} disabled={isApproving} className="w-full h-14 text-lg font-bold bg-emerald-600 hover:bg-emerald-500 text-white shrink-0 shadow-lg">
                               {isApproving ? "Processing..." : <><CheckCircle2 className="w-5 h-5 mr-2" /> Approve & Submit</>}
