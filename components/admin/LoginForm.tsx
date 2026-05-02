@@ -46,7 +46,7 @@ export default function LoginForm({ companyName }: { companyName: string }) {
             <Lock className="w-8 h-8 text-emerald-400" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-white mb-2">{companyName}</h1>
-          <p className="text-zinc-500 font-medium">Command Center Authentication</p>
+          <p className="text-zinc-500 font-medium">Invoice Centre</p>
         </div>
 
         <Card className="bg-zinc-900 border-zinc-800 shadow-2xl">
@@ -64,7 +64,7 @@ export default function LoginForm({ companyName }: { companyName: string }) {
               <div className="space-y-2">
                 <Input 
                   type="password" 
-                  placeholder="Master Password" 
+                  placeholder="Enter Password..." 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-black border-zinc-800 text-white h-12 text-lg px-4"
@@ -78,7 +78,7 @@ export default function LoginForm({ companyName }: { companyName: string }) {
                 disabled={isLoading || !password}
                 className="w-full h-12 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-lg shadow-lg shadow-emerald-900/20"
               >
-                {isLoading ? "Authenticating..." : <><ShieldCheck className="w-5 h-5 mr-2" /> Unlock Ledger</>}
+                {isLoading ? "Authenticating..." : <><ShieldCheck className="w-5 h-5 mr-2" /> Login</>}
               </Button>
             </CardFooter>
           </form>
