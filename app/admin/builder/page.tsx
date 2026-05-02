@@ -7,12 +7,12 @@ async function getData(editToken?: string) {
   const templates = db.prepare('SELECT * FROM job_templates').all();
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
   
-  // Explicitly set these to undefined and define their types so the Next.js build compiler doesn't panic
   let initialInvoice: any = undefined;
   let initialItems: any[] | undefined = undefined;
 
   if (editToken) {
-    initialInvoice = db.prepare("SELECT * FROM invoices WHERE token = ? AND status = 'draft'").get(editToken);
+    // Removed the "AND status = 'draft'" guard
+    initialInvoice = db.prepare("SELECT * FROM invoices WHERE token = ?").get(editToken);
     if (initialInvoice) {
       initialItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ?').all((initialInvoice as any).id) as any[];
     }

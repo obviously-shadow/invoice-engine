@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRouter } from "next/navigation";
-import { Building2, Percent, ShieldCheck, FileText } from "lucide-react";
+import { Building2, Percent, ShieldCheck, FileText, Lock } from "lucide-react";
 
 export default function SetupWizard() {
   const [companyName, setCompanyName] = useState("");
@@ -14,6 +14,7 @@ export default function SetupWizard() {
   const [taxRate, setTaxRate] = useState("13.0");
   const [paymentTerms, setPaymentTerms] = useState("Due on receipt");
   const [requireSignature, setRequireSignature] = useState(false);
+  const [password, setPassword] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   
   const router = useRouter();
@@ -21,6 +22,10 @@ export default function SetupWizard() {
   const handleCompleteSetup = async () => {
     if (!companyName.trim()) {
       alert("Please enter a business name.");
+      return;
+    }
+    if (password.length < 6) {
+      alert("Please enter a Master Password (min 6 characters) to secure your data.");
       return;
     }
 
@@ -34,12 +39,17 @@ export default function SetupWizard() {
           business_number: businessNumber,
           tax_rate: parseFloat(taxRate), 
           payment_terms: paymentTerms,
-          require_signature: requireSignature 
+          require_signature: requireSignature,
+          password: password
         })
       });
       
       if (res.ok) {
         router.push('/admin');
+        router.refresh();
+      } else {
+        const data = await res.json();
+        alert(data.error);
       }
     } catch (error) {
       console.error(error);
@@ -134,14 +144,33 @@ export default function SetupWizard() {
                 </button>
               </div>
             </div>
+
+            {/* SECURITY BLOCK */}
+            <div className="pt-6 border-t border-zinc-800">
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-amber-400 font-bold flex items-center gap-2">
+                  <Lock className="w-4 h-4" /> Master Password
+                </Label>
+                <Input 
+                  id="password" 
+                  type="password"
+                  placeholder="Create a strong password for your Admin Ledger"
+                  value={password} 
+                  onChange={(e) => setPassword(e.target.value)} 
+                  className="bg-black border-amber-500/30 text-white focus-visible:ring-amber-500/50"
+                />
+                <p className="text-xs text-zinc-500">This will lock down `/admin` to prevent unauthorized access to your business data.</p>
+              </div>
+            </div>
+
           </CardContent>
           <CardFooter className="border-t border-zinc-800 pt-6">
             <Button 
               onClick={handleCompleteSetup} 
-              disabled={isSaving || !companyName.trim()}
+              disabled={isSaving || !companyName.trim() || password.length < 6}
               className="w-full bg-white text-black hover:bg-zinc-200 h-12 font-bold"
             >
-              {isSaving ? "Saving..." : "Complete Setup"}
+              {isSaving ? "Saving..." : "Secure & Complete Setup"}
             </Button>
           </CardFooter>
         </Card>

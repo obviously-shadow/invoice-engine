@@ -49,7 +49,10 @@ db.exec(`
     signature_data TEXT,
     signed_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    is_tbd BOOLEAN DEFAULT 0
+    is_tbd BOOLEAN DEFAULT 0,
+    is_archived BOOLEAN DEFAULT 0,
+    display_number INTEGER,
+    due_date TEXT DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS invoice_items (
@@ -77,17 +80,20 @@ db.exec(`
     tax_rate REAL NOT NULL DEFAULT 13.00,
     payment_terms TEXT DEFAULT 'Net 30',
     require_signature BOOLEAN NOT NULL DEFAULT 0,
-    is_setup BOOLEAN NOT NULL DEFAULT 0
+    is_setup BOOLEAN NOT NULL DEFAULT 0,
+    password_hash TEXT,
+    tax_threshold REAL DEFAULT 30000.00
   );
 `);
 
-// Graceful auto-migrations for existing databases
 try { db.exec("ALTER TABLE invoice_items ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE invoice_items ADD COLUMN group_name TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE invoices ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
-// NEW MIGRATIONS
 try { db.exec("ALTER TABLE invoices ADD COLUMN is_archived BOOLEAN DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE invoices ADD COLUMN display_number INTEGER"); } catch (e) {}
+try { db.exec("ALTER TABLE invoices ADD COLUMN due_date TEXT DEFAULT ''"); } catch (e) {}
+try { db.exec("ALTER TABLE settings ADD COLUMN password_hash TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE settings ADD COLUMN tax_threshold REAL DEFAULT 30000.00"); } catch (e) {}
 
 const insertSettings = db.prepare(`
   INSERT OR IGNORE INTO settings (

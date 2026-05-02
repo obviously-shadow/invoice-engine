@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import Link from "next/link";
-import { ArrowLeft, Layers, Plus, X, Send, CheckCircle2, Tag } from "lucide-react";
+import { ArrowLeft, Layers, Plus, X, Send, CheckCircle2, Tag, CalendarClock } from "lucide-react";
 
 export default function InvoiceBuilder({ 
   templates, 
@@ -22,7 +22,6 @@ export default function InvoiceBuilder({
 }) {
   const isEditing = !!initialInvoice;
 
-  // If loading an existing invoice, treat all items as custom to lock in their saved prices
   const mappedInitialItems = initialItems?.map(item => ({
     title: item.title,
     description: item.description,
@@ -39,6 +38,9 @@ export default function InvoiceBuilder({
   const [clientEmail, setClientEmail] = useState(initialInvoice?.client_email || "");
   const [clientAddress, setClientAddress] = useState(initialInvoice?.client_address || "");
   
+  // NEW DUE DATE STATE
+  const [customDueDate, setCustomDueDate] = useState(initialInvoice?.due_date || "");
+
   const [currentGroup, setCurrentGroup] = useState("");
   const [customTitle, setCustomTitle] = useState("");
   const [customDesc, setCustomDesc] = useState("");
@@ -125,7 +127,8 @@ export default function InvoiceBuilder({
           items: activeInvoice, 
           tax_rate: settings.tax_rate,
           notes: initialInvoice?.notes || "",
-          is_tbd: invoiceIsTBD
+          is_tbd: invoiceIsTBD,
+          due_date: customDueDate
         })
       });
       const data = await res.json();
@@ -260,7 +263,7 @@ export default function InvoiceBuilder({
                   <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Bill To (Client Name)</label>
                   <Input placeholder="e.g. John Doe" value={clientName} onChange={e => setClientName(e.target.value)} className="bg-black border-zinc-700 text-zinc-100 font-semibold text-lg h-12" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Email</label>
                     <Input placeholder="john@example.com" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="bg-black border-zinc-700 text-zinc-100 h-10" />
@@ -268,6 +271,12 @@ export default function InvoiceBuilder({
                   <div>
                     <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Address</label>
                     <Input placeholder="123 Main St" value={clientAddress} onChange={e => setClientAddress(e.target.value)} className="bg-black border-zinc-700 text-zinc-100 h-10" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 flex items-center gap-1" title="Overrides default payment terms">
+                       <CalendarClock className="w-3 h-3 text-emerald-400" /> Custom Due Date
+                    </label>
+                    <Input type="date" value={customDueDate} onChange={e => setCustomDueDate(e.target.value)} className="bg-black border-zinc-700 text-zinc-100 h-10" />
                   </div>
                 </div>
               </div>

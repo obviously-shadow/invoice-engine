@@ -5,11 +5,10 @@ import crypto from 'crypto';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { client_name, client_email, client_address, items, tax_rate, notes, is_tbd } = body;
+    const { client_name, client_email, client_address, items, tax_rate, notes, is_tbd, due_date } = body;
 
     const token = crypto.randomBytes(16).toString('hex');
 
-    // Calculate the next display number (starts at 1234, jumps by 4)
     const maxStmt = db.prepare('SELECT MAX(display_number) as max_num FROM invoices');
     const maxResult = maxStmt.get() as { max_num: number | null };
     
@@ -18,11 +17,11 @@ export async function POST(request: Request) {
         nextDisplayNum = maxResult.max_num + 1;
     }
 
-    const insertInvoice = db.prepare('INSERT INTO invoices (client_name, client_email, client_address, token, status, tax_rate, notes, is_tbd, display_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertInvoice = db.prepare('INSERT INTO invoices (client_name, client_email, client_address, token, status, tax_rate, notes, is_tbd, display_number, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const insertItem = db.prepare('INSERT INTO invoice_items (invoice_id, title, description, qty, rate, total, is_tbd, group_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     const transaction = db.transaction(() => {
-      const info = insertInvoice.run(client_name || 'Valued Client', client_email, client_address, token, 'draft', tax_rate, notes || '', is_tbd ? 1 : 0, nextDisplayNum);
+      const info = insertInvoice.run(client_name || 'Valued Client', client_email, client_address, token, 'draft', tax_rate, notes || '', is_tbd ? 1 : 0, nextDisplayNum, due_date || '');
       const invoiceId = info.lastInsertRowid;
 
       for (const item of items) {

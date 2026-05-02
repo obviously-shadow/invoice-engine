@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { Copy, Check, CheckCircle2, Edit2, Trash2 } from "lucide-react";
 
-export default function ClientActionButtons({ token, status }: { token: string, status: string }) {
+export default function ClientActionButtons({ token, status, isArchived = false }: { token: string, status: string, isArchived?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const router = useRouter();
@@ -37,7 +37,12 @@ export default function ClientActionButtons({ token, status }: { token: string, 
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this invoice? This will revoke client access.")) return;
+    const msg = isArchived 
+      ? "Permanently delete this invoice? This cannot be undone." 
+      : "Archive this invoice? This will revoke client access.";
+      
+    if (!confirm(msg)) return;
+    
     setIsProcessing(true);
     try {
       await fetch(`/api/invoices/${token}`, { method: 'DELETE' });
@@ -49,29 +54,27 @@ export default function ClientActionButtons({ token, status }: { token: string, 
   return (
     <div className="flex justify-end gap-2 items-center">
       
-      {status === 'draft' && (
-        <>
-          <Button 
-            variant="ghost" 
-            size="icon-sm"
-            onClick={() => router.push(`/admin/builder?edit=${token}`)}
-            className="text-zinc-400 hover:text-emerald-400 hover:bg-emerald-400/10 h-8 w-8"
-            title="Edit Document"
-          >
-            <Edit2 className="w-4 h-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="icon-sm"
-            onClick={handleDelete}
-            disabled={isProcessing}
-            className="text-zinc-400 hover:text-red-400 hover:bg-red-400/10 h-8 w-8"
-            title="Delete Document"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </>
-      )}
+      {/* Edit & Delete are now ALWAYS visible */}
+      <Button 
+        variant="ghost" 
+        size="icon-sm"
+        onClick={() => router.push(`/admin/builder?edit=${token}`)}
+        className="text-zinc-400 hover:text-emerald-400 hover:bg-emerald-400/10 h-8 w-8"
+        title="Edit Document"
+      >
+        <Edit2 className="w-4 h-4" />
+      </Button>
+      
+      <Button 
+        variant="ghost" 
+        size="icon-sm"
+        onClick={handleDelete}
+        disabled={isProcessing}
+        className="text-zinc-400 hover:text-red-400 hover:bg-red-400/10 h-8 w-8"
+        title={isArchived ? "Permanently Delete" : "Archive Document"}
+      >
+        <Trash2 className="w-4 h-4" />
+      </Button>
 
       <Button 
         variant="ghost" 
@@ -82,7 +85,7 @@ export default function ClientActionButtons({ token, status }: { token: string, 
         {copied ? "Copied" : "Copy Link"}
       </Button>
 
-      {status === 'approved' && (
+      {!isArchived && status === 'approved' && (
         <Button 
           onClick={handleMarkPaid}
           disabled={isProcessing}

@@ -1,49 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpCircle, CheckCircle2 } from "lucide-react";
+import { ArrowUpCircle, ExternalLink } from "lucide-react";
 
 export default function UpdateBadge() {
-  const [data, setData] = useState({ current: '', latest: '', ready: false, loaded: false });
+  const [hasUpdate, setHasUpdate] = useState(false);
+  const [latestVersion, setLatestVersion] = useState("");
 
   useEffect(() => {
-    async function checkVersion() {
-      try {
-        const res = await fetch('/api/health');
-        const json = await res.json();
-        setData({ 
-          current: json.currentVersion, 
-          latest: json.latestVersion, 
-          ready: json.updateAvailable, 
-          loaded: true 
-        });
-      } catch (e) {
-        // Silent fail
-      }
-    }
-
-    checkVersion();
-    const interval = setInterval(checkVersion, 600000); // Check every 10 mins
-    return () => clearInterval(interval);
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(data => {
+        if (data.updateAvailable) {
+          setHasUpdate(true);
+          setLatestVersion(data.latestVersion);
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  if (!data.loaded) return null;
+  if (!hasUpdate) return null;
 
-  if (data.ready) {
-    return (
-      <Badge className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1 flex items-center gap-2 animate-pulse shadow-lg shadow-amber-500/10">
-        <ArrowUpCircle className="w-3.5 h-3.5" />
-        <span className="font-bold">Update v{data.latest} Available</span>
-        <span className="text-amber-500/60 font-medium ml-1">(Current: v{data.current})</span>
-      </Badge>
-    );
-  }
-
+  // Swapped the href to point to your main repo instead of the releases tab
   return (
-    <Badge className="bg-zinc-900 text-zinc-500 border border-zinc-800 px-3 py-1 flex items-center gap-2">
-      <CheckCircle2 className="w-3.5 h-3.5" />
-      <span className="font-medium">v{data.current} (Up to Date)</span>
-    </Badge>
+    <a href="https://github.com/obviously-shadow/invoice-engine" target="_blank" rel="noopener noreferrer">
+      <Badge variant="outline" className="border-emerald-500/50 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 text-xs font-bold gap-1 cursor-pointer hover:bg-emerald-500/20 transition-colors" title={`Version ${latestVersion} is available. Click to view latest code.`}>
+        <ArrowUpCircle className="w-3 h-3" /> v{latestVersion} Available <ExternalLink className="w-3 h-3 opacity-50 ml-1" />
+      </Badge>
+    </a>
   );
 }

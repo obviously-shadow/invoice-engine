@@ -122,10 +122,14 @@ export default function ClientInvoice({
     setIsApproving(false);
   };
 
+  // Safe Date Parsing
   const issueDate = new Date(invoice.created_at).toLocaleDateString();
-  
   let dueDate = issueDate;
-  if (settings.payment_terms.toLowerCase().includes('net')) {
+
+  if (invoice.due_date) {
+    // If a custom due date exists, append a time to force local parsing without timezone shifting
+    dueDate = new Date(`${invoice.due_date}T12:00:00`).toLocaleDateString();
+  } else if (settings.payment_terms.toLowerCase().includes('net')) {
     const days = parseInt(settings.payment_terms.replace(/[^0-9]/g, '')) || 0;
     if (days > 0) {
       const d = new Date(invoice.created_at);
@@ -188,8 +192,15 @@ export default function ClientInvoice({
 
           <div className="print-area bg-white md:shadow-2xl md:rounded-xl p-6 sm:p-8 md:p-16 border-t md:border border-zinc-200 relative overflow-hidden z-10 min-h-screen md:min-h-0">
             
+            {/* LARGE WATERMARK BACKGROUND */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 overflow-hidden opacity-[0.02]">
+              <span className="text-[100px] md:text-[180px] font-black uppercase tracking-widest text-black rotate-[-30deg] select-none">
+                {status === 'draft' ? 'ESTIMATE' : 'INVOICE'}
+              </span>
+            </div>
+
             {status === 'paid' && (
-              <div className="absolute top-1/4 right-0 left-0 bottom-0 flex justify-center opacity-[0.04] pointer-events-none rotate-[-15deg] z-0 overflow-hidden">
+              <div className="absolute top-1/4 right-0 left-0 bottom-0 flex justify-center opacity-[0.04] pointer-events-none rotate-[-15deg] z-10 overflow-hidden">
                 <span className="text-[120px] md:text-[150px] font-black border-[16px] border-black px-12 py-4 inline-block text-black uppercase tracking-widest rounded-[3rem] h-fit">
                   PAID
                 </span>
@@ -197,16 +208,15 @@ export default function ClientInvoice({
             )}
 
             {status === 'approved' && (
-              <div className="absolute top-1/4 right-0 left-0 bottom-0 flex justify-center opacity-[0.03] pointer-events-none rotate-[-15deg] z-0 overflow-hidden">
+              <div className="absolute top-1/4 right-0 left-0 bottom-0 flex justify-center opacity-[0.03] pointer-events-none rotate-[-15deg] z-10 overflow-hidden">
                 <span className="text-[80px] md:text-[120px] font-black border-[16px] border-black px-12 py-4 inline-block text-black uppercase tracking-widest rounded-[3rem] h-fit">
                   APPROVED
                 </span>
               </div>
             )}
 
-            <div className="flex flex-col md:flex-row justify-between items-start mb-12 md:mb-16 relative z-10">
+            <div className="flex flex-col md:flex-row justify-between items-start mb-12 md:mb-16 relative z-20">
               <div className="w-full md:w-1/2">
-                {/* UPGRADED: Massively increased sizing classes from h-16 to h-28/md:h-36 */}
                 <img src="/LOGO.png" alt="Company Logo" className="h-28 md:h-36 w-auto max-w-[300px] object-contain mb-6 print:mb-4" onError={(e) => e.currentTarget.style.display = 'none'} />
                 
                 <h1 className="text-3xl md:text-5xl font-black tracking-tight text-black mb-6">{settings.company_name}</h1>
@@ -238,7 +248,7 @@ export default function ClientInvoice({
               </div>
             </div>
 
-            <div className="mb-14 relative z-10">
+            <div className="mb-14 relative z-20">
               <h3 className="text-xs font-black text-black uppercase tracking-widest mb-4 border-b-[3px] border-black inline-block pb-1">Billed To</h3>
               <div className="text-zinc-800 text-base leading-relaxed break-words">
                 <p className="font-black text-xl text-black mb-1">{invoice.client_name}</p>
@@ -247,7 +257,7 @@ export default function ClientInvoice({
               </div>
             </div>
 
-            <div className="mb-16 w-full relative z-10">
+            <div className="mb-16 w-full relative z-20">
               {groups.map((group, index) => (
                 <div key={index} className="mb-10">
                   {group && (
@@ -298,7 +308,7 @@ export default function ClientInvoice({
               ))}
             </div>
 
-            <div className="flex flex-col md:flex-row justify-between mb-16 gap-12 relative z-10">
+            <div className="flex flex-col md:flex-row justify-between mb-16 gap-12 relative z-20">
               <div className="w-full md:w-1/2 order-2 md:order-1 bg-zinc-50 p-6 rounded-xl border border-zinc-300 shadow-sm">
                 <p className="font-black text-black text-sm mb-3 uppercase tracking-widest">Notes & Instructions</p>
                 <p className="text-zinc-800 text-sm whitespace-pre-wrap leading-relaxed font-semibold">{invoice.notes || `Thank you for choosing ${settings.company_name}. We appreciate your business.`}</p>
@@ -341,7 +351,7 @@ export default function ClientInvoice({
             </div>
 
             {(hasTbdItems || isWholeInvoiceTbd) && (
-              <div className="mb-12 p-5 bg-amber-50 rounded-xl border-2 border-amber-300 text-sm text-amber-950 leading-relaxed font-semibold flex gap-4 relative z-10 shadow-sm">
+              <div className="mb-12 p-5 bg-amber-50 rounded-xl border-2 border-amber-300 text-sm text-amber-950 leading-relaxed font-semibold flex gap-4 relative z-20 shadow-sm">
                 <AlertCircle className="w-7 h-7 text-amber-600 shrink-0 mt-0.5" />
                 <p>
                   <span className="font-black uppercase tracking-widest">Pricing Notice:</span> This document contains variable (TBD) pricing for certain requirements. The final total will be adjusted upon completion based on the actual material dimensions, hours, and scope of work specifications.
@@ -350,7 +360,7 @@ export default function ClientInvoice({
             )}
 
             {status === 'draft' ? (
-              <div className="no-print bg-zinc-900 border border-black p-5 md:p-8 rounded-2xl w-full text-white shadow-2xl relative z-20 mt-12">
+              <div className="no-print bg-zinc-900 border border-black p-5 md:p-8 rounded-2xl w-full text-white shadow-2xl relative z-30 mt-12">
                 <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
                   <span className="font-bold text-base text-white flex items-center gap-3">
                     <PenTool className="w-5 h-5 text-emerald-400"/>
@@ -430,7 +440,7 @@ export default function ClientInvoice({
               </div>
             ) : (
               (invoice.signature_data || invoice.signed_at) && (
-                <div className="mt-16 pt-12 border-t-[3px] border-zinc-200 break-inside-avoid w-full relative z-10">
+                <div className="mt-16 pt-12 border-t-[3px] border-zinc-200 break-inside-avoid w-full relative z-30">
                   <p className="font-black text-xs uppercase tracking-widest text-zinc-500 mb-6 block">Authorized Signature</p>
                   <div className="w-full max-w-[300px]">
                     {invoice.signature_data && (

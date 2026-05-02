@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import ClientActionButtons from "@/components/admin/ClientActionButtons";
-import { Settings, Plus, FileText, AlertTriangle } from "lucide-react";
+import { Settings, Plus, FileText, AlertTriangle, Archive, TrendingUp, BarChart3 } from "lucide-react";
 import UpdateBadge from "@/components/admin/UpdateBadge";
+import LogoutButton from "@/components/admin/LogoutButton";
 
 export const dynamic = 'force-dynamic';
 
@@ -21,25 +22,33 @@ function getDashboardData() {
     ORDER BY i.created_at DESC
   `).all();
 
-  const revenueRow = db.prepare(`
+  const collectedRevenueRow = db.prepare(`
     SELECT SUM(items.total) as total 
     FROM invoices i 
     JOIN invoice_items items ON i.id = items.invoice_id 
     WHERE i.status = 'paid' AND IFNULL(i.is_archived, 0) = 0
   `).get() as any;
 
+  const outstandingRevenueRow = db.prepare(`
+    SELECT SUM(items.total) as total 
+    FROM invoices i 
+    JOIN invoice_items items ON i.id = items.invoice_id 
+    WHERE (i.status = 'draft' OR i.status = 'approved') AND IFNULL(i.is_archived, 0) = 0
+  `).get() as any;
+
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
   
   return { 
     invoices, 
-    ytdRevenue: revenueRow?.total || 0, 
+    ytdRevenue: collectedRevenueRow?.total || 0, 
+    outstandingRevenue: outstandingRevenueRow?.total || 0,
     settings
   };
 }
 
 export default function AdminLedger() {
   const data = getDashboardData();
-  const threshold = 30000;
+  const threshold = data.settings.tax_threshold || 30000;
   const percentToThreshold = (data.ytdRevenue / threshold) * 100;
   const isWarning = percentToThreshold > 80;
 
@@ -55,6 +64,11 @@ export default function AdminLedger() {
             <p className="text-zinc-400 text-lg">{data.settings.company_name}</p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Link href="/admin/archive">
+              <Button variant="outline" className="bg-zinc-900 border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-800 h-11 px-5">
+                <Archive className="w-4 h-4 mr-2" /> Archive
+              </Button>
+            </Link>
             <Link href="/admin/settings">
               <Button variant="outline" className="bg-zinc-900 border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-800 h-11 px-5">
                 <Settings className="w-4 h-4 mr-2" /> Settings
@@ -65,36 +79,57 @@ export default function AdminLedger() {
                 <Plus className="w-5 h-5 mr-2" /> New Estimate
               </Button>
             </Link>
+            <LogoutButton />
           </div>
         </header>
 
-        <Card className="bg-zinc-900/50 border-white/5 shadow-xl backdrop-blur-sm">
-          <CardContent className="p-6">
-            <div className="flex justify-between items-end mb-3">
-              <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">YTD Revenue (Paid, Pre-Tax)</h3>
-                <div className="text-3xl font-mono text-white tracking-tight">${data.ytdRevenue.toLocaleString()}</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* UPDATED "VIEW REPORT" BUTTON STYLING */}
+          <Card className="bg-zinc-900/50 border-white/5 shadow-xl backdrop-blur-sm relative group">
+            <Link href="/admin/revenue" className="absolute top-4 right-4 z-10 transition-opacity">
+              <Button variant="outline" size="sm" className="bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700 hover:text-white text-xs h-8 shadow-md">
+                 <BarChart3 className="w-3.5 h-3.5 mr-1.5" /> View Report
+              </Button>
+            </Link>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-end mb-3">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Collected Revenue (YTD)</h3>
+                  <div className="text-3xl font-mono text-white tracking-tight">${data.ytdRevenue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                </div>
+                <span className="text-sm font-mono text-zinc-500">Target: ${threshold.toLocaleString()}</span>
               </div>
-              <span className="text-sm font-mono text-zinc-500">Target: ${threshold.toLocaleString()}</span>
-            </div>
-            <div className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/5">
-              <div 
-                className={`h-full ${isWarning ? 'bg-amber-500' : 'bg-emerald-500'} transition-all duration-1000 ease-out`} 
-                style={{ width: `${Math.min(percentToThreshold, 100)}%` }}
-              />
-            </div>
-            {isWarning && (
-              <p className="flex items-center gap-2 text-sm text-amber-400 mt-3 font-medium">
-                <AlertTriangle className="w-4 h-4" /> Approaching CRA GST/HST registration threshold.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+              <div className="h-3 w-full bg-black rounded-full overflow-hidden border border-white/5">
+                <div 
+                  className={`h-full ${isWarning ? 'bg-amber-500' : 'bg-emerald-500'} transition-all duration-1000 ease-out`} 
+                  style={{ width: `${Math.min(percentToThreshold, 100)}%` }}
+                />
+              </div>
+              {isWarning && (
+                <p className="flex items-center gap-2 text-sm text-amber-400 mt-3 font-medium">
+                  <AlertTriangle className="w-4 h-4" /> Approaching custom tracking threshold.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-zinc-900/50 border-white/5 shadow-xl backdrop-blur-sm">
+            <CardContent className="p-6 h-full flex flex-col justify-center">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-blue-400"/> Outstanding Value
+                </h3>
+                <div className="text-3xl font-mono text-blue-100 tracking-tight">${data.outstandingRevenue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                <p className="text-xs text-zinc-500 mt-2">Combined value of all active Drafts and Approved estimates currently awaiting payment.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <Card className="bg-zinc-900 border-white/10 shadow-2xl overflow-hidden">
           <CardHeader className="border-b border-white/5 bg-black/20 pb-5">
             <CardTitle className="text-xl text-white flex items-center gap-2">
-              <FileText className="w-5 h-5 text-zinc-400" /> Recent Documents
+              <FileText className="w-5 h-5 text-zinc-400" /> Active Documents
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -141,7 +176,7 @@ export default function AdminLedger() {
                       ${invoice.subtotal ? invoice.subtotal.toFixed(2) : "0.00"}
                     </TableCell>
                     <TableCell className="text-right pr-4">
-                      <ClientActionButtons token={invoice.token} status={invoice.status} />
+                      <ClientActionButtons token={invoice.token} status={invoice.status} isArchived={false} />
                     </TableCell>
                   </TableRow>
                 )})}

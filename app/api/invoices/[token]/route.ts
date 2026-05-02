@@ -5,18 +5,22 @@ export async function PUT(request: Request, { params }: { params: Promise<{ toke
   try {
     const resolvedParams = await params;
     const body = await request.json();
-    const { client_name, client_email, client_address, items, tax_rate, notes, is_tbd } = body;
+    const { client_name, client_email, client_address, items, tax_rate, notes, is_tbd, due_date } = body;
 
-    // FIXED: Swapped double quotes for single quotes around 'draft'
-    const updateInvoice = db.prepare("UPDATE invoices SET client_name=?, client_email=?, client_address=?, tax_rate=?, notes=?, is_tbd=? WHERE token=? AND status='draft'");
+    const updateInvoice = db.prepare(`
+      UPDATE invoices 
+      SET client_name=?, client_email=?, client_address=?, tax_rate=?, notes=?, is_tbd=?, is_archived=0, due_date=? 
+      WHERE token=?
+    `);
+    
     const deleteItems = db.prepare("DELETE FROM invoice_items WHERE invoice_id = (SELECT id FROM invoices WHERE token=?)");
     const insertItem = db.prepare("INSERT INTO invoice_items (invoice_id, title, description, qty, rate, total, is_tbd, group_name) VALUES ((SELECT id FROM invoices WHERE token=?), ?, ?, ?, ?, ?, ?, ?)");
 
     const transaction = db.transaction(() => {
-      const result = updateInvoice.run(client_name, client_email, client_address, tax_rate, notes || '', is_tbd ? 1 : 0, resolvedParams.token);
+      const result = updateInvoice.run(client_name, client_email, client_address, tax_rate, notes || '', is_tbd ? 1 : 0, due_date || '', resolvedParams.token);
       
       if (result.changes === 0) {
-        throw new Error("Invoice cannot be edited or does not exist.");
+        throw new Error("Invoice does not exist.");
       }
 
       deleteItems.run(resolvedParams.token);
@@ -41,12 +45,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ toke
 export async function DELETE(request: Request, { params }: { params: Promise<{ token: string }> }) {
   try {
     const resolvedParams = await params;
-    // FIXED: Swapped double quotes for single quotes around 'draft'
-    const deleteStmt = db.prepare("UPDATE invoices SET is_archived = 1 WHERE token = ? AND status = 'draft'");
-    const result = deleteStmt.run(resolvedParams.token);
+    const invoice = db.prepare("SELECT is_archived FROM invoices WHERE token = ?").get(resolvedParams.token) as any;
+    
+    if (!invoice) {
+      return NextResponse.json({ error: 'Invoice not found.' }, { status: 404 });
+    }
 
-    if (result.changes === 0) {
-      return NextResponse.json({ error: 'Invoice not found or cannot be deleted.' }, { status: 400 });
+    if (invoice.is_archived === 1) {
+      db.prepare("DELETE FROM invoices WHERE token = ?").run(resolvedParams.token);
+    } else {
+      db.prepare("UPDATE invoices SET is_archived = 1 WHERE token = ?").run(resolvedParams.token);
     }
 
     return NextResponse.json({ success: true });
