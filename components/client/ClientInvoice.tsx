@@ -311,7 +311,7 @@ export default function ClientInvoice({
             <div className="flex flex-col md:flex-row justify-between mb-16 gap-12 relative z-20">
               <div className="w-full md:w-1/2 order-2 md:order-1 bg-zinc-50 p-6 rounded-xl border border-zinc-300 shadow-sm">
                 <p className="font-black text-black text-sm mb-3 uppercase tracking-widest">Notes & Instructions</p>
-                <p className="text-zinc-800 text-sm whitespace-pre-wrap leading-relaxed font-semibold">{invoice.notes || `Thank you for choosing ${settings.company_name}. We appreciate your business.`}</p>
+                <p className="text-zinc-800 text-sm whitespace-pre-wrap leading-relaxed font-semibold">{invoice.notes || `This quote covers only the listed work. If unexpected issues arise, the customer will be informed and any extra work or costs will require approval. Work may be adjusted or paused if conditions differ from expected or are unsafe. \n \nThank you for choosing ${settings.company_name}. We appreciate your business.`}</p>
               </div>
               
               <div className="w-full md:w-1/2 flex md:justify-end order-1 md:order-2">
