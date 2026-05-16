@@ -69,6 +69,16 @@ db.exec(`
     FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS invoice_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    method TEXT DEFAULT 'Transfer',
+    notes TEXT,
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     company_name TEXT NOT NULL DEFAULT 'My Company',

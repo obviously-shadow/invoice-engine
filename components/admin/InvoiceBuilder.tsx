@@ -38,7 +38,6 @@ export default function InvoiceBuilder({
   const [clientEmail, setClientEmail] = useState(initialInvoice?.client_email || "");
   const [clientAddress, setClientAddress] = useState(initialInvoice?.client_address || "");
   
-  // NEW DUE DATE STATE
   const [customDueDate, setCustomDueDate] = useState(initialInvoice?.due_date || "");
 
   const [currentGroup, setCurrentGroup] = useState("");

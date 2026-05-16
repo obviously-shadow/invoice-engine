@@ -13,8 +13,9 @@ function getInvoiceData(token: string) {
 
   const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ?').all(invoice.id);
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  const payments = db.prepare('SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY recorded_at ASC').all(invoice.id);
   
-  return { invoice, items, settings };
+  return { invoice, items, settings, payments };
 }
 
 export default async function InvoicePage({ params }: { params: Promise<{ token: string }> }) {
@@ -25,7 +26,6 @@ export default async function InvoicePage({ params }: { params: Promise<{ token:
     notFound();
   }
 
-  // Handle Voided/Deleted Documents
   if (data.invoice.is_archived === 1) {
     return (
       <div className="min-h-screen bg-zinc-100 flex items-center justify-center p-4 selection:bg-zinc-300">
@@ -45,6 +45,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ token:
       invoice={data.invoice} 
       items={data.items} 
       settings={data.settings} 
+      payments={data.payments}
     />
   );
 }

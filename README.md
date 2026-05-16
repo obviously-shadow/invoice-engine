@@ -83,6 +83,10 @@ If you wish to modify the code or contribute to the project:
 
 3. **Start Development Server:**
    ```bash
+   npm run setup
+
+   then
+
    npm run dev
    ```
 

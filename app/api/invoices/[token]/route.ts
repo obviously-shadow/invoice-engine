@@ -17,6 +17,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ toke
     const insertItem = db.prepare("INSERT INTO invoice_items (invoice_id, title, description, qty, rate, total, is_tbd, group_name) VALUES ((SELECT id FROM invoices WHERE token=?), ?, ?, ?, ?, ?, ?, ?)");
 
     const transaction = db.transaction(() => {
+      // Update the invoice details without touching the status or signature data
       const result = updateInvoice.run(client_name, client_email, client_address, tax_rate, notes || '', is_tbd ? 1 : 0, due_date || '', resolvedParams.token);
       
       if (result.changes === 0) {

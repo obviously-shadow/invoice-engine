@@ -2,16 +2,18 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Printer, PenTool, CheckCircle2, AlertCircle, Eraser, Maximize2, Minimize2, X } from "lucide-react";
+import { Printer, PenTool, CheckCircle2, AlertCircle, Eraser, Maximize2, Minimize2, X, PlusCircle } from "lucide-react";
 
 export default function ClientInvoice({ 
   invoice, 
   items, 
-  settings 
+  settings,
+  payments = []
 }: { 
   invoice: any; 
   items: any[]; 
   settings: any;
+  payments?: any[];
 }) {
   const [status, setStatus] = useState(invoice.status);
   const [isApproving, setIsApproving] = useState(false);
@@ -28,6 +30,11 @@ export default function ClientInvoice({
   const total = subtotal + hst;
   const hasTbdItems = items.some(item => item.is_tbd === 1);
   const isWholeInvoiceTbd = invoice.is_tbd === 1;
+  
+  const hasAddendums = items.some(item => item.group_name === 'Change Order / Addendum');
+
+  const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+  const balance = total - totalPaid;
 
   const groups = Array.from(new Set(items.map(item => item.group_name)));
 
@@ -122,12 +129,10 @@ export default function ClientInvoice({
     setIsApproving(false);
   };
 
-  // Safe Date Parsing
   const issueDate = new Date(invoice.created_at).toLocaleDateString();
   let dueDate = issueDate;
 
   if (invoice.due_date) {
-    // If a custom due date exists, append a time to force local parsing without timezone shifting
     dueDate = new Date(`${invoice.due_date}T12:00:00`).toLocaleDateString();
   } else if (settings.payment_terms.toLowerCase().includes('net')) {
     const days = parseInt(settings.payment_terms.replace(/[^0-9]/g, '')) || 0;
@@ -152,10 +157,27 @@ export default function ClientInvoice({
     <>
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
-          body { background: white !important; margin: 0 !important; padding: 0 !important; }
+          body { 
+            background: white !important; 
+            color: black !important;
+            margin: 0 !important; 
+            padding: 0 !important; 
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           .no-print { display: none !important; }
-          .print-area { box-shadow: none !important; max-width: 100% !important; border: none !important; padding: 0 !important; }
-          @page { margin: 1cm; size: auto; }
+          .print-area { 
+            box-shadow: none !important; 
+            max-width: 100% !important; 
+            width: 100% !important;
+            border: none !important; 
+            padding: 0 !important; 
+            margin: 0 !important;
+          }
+          .print-break-avoid {
+            break-inside: avoid !important;
+          }
+          @page { margin: 1.5cm; size: portrait; }
         }
       `}} />
       <div className="min-h-screen bg-white md:bg-zinc-100 text-zinc-950 py-0 md:py-12 px-0 md:px-4 flex justify-center font-sans selection:bg-zinc-300">
@@ -163,15 +185,30 @@ export default function ClientInvoice({
           
           <div className="no-print mb-8 w-full flex flex-col md:flex-row justify-between items-center gap-4 px-4 md:px-0 mt-4 md:mt-0">
             <div className="w-full">
-              {status === 'approved' && (
+              {status === 'approved' && !hasAddendums && (
                 <div className="p-4 md:p-5 bg-emerald-100 border border-emerald-300 rounded-xl text-emerald-950 shadow-sm font-bold text-sm md:text-base flex items-center gap-3">
                   <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
                   Estimate Approved & Authorized
                 </div>
               )}
+              {status === 'approved' && hasAddendums && (
+                <div className="p-4 md:p-5 bg-amber-100 border border-amber-300 rounded-xl text-amber-950 shadow-sm font-bold text-sm md:text-base flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <PlusCircle className="w-6 h-6 text-amber-600 shrink-0 hidden sm:block" />
+                  <div>
+                    <span className="block mb-0.5">Scope Updated</span>
+                    <span className="text-xs font-medium text-amber-800">Additional line items have been added to this project since initial authorization.</span>
+                  </div>
+                </div>
+              )}
+              {status === 'partially_paid' && (
+                <div className="p-4 md:p-5 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 shadow-sm font-semibold text-sm md:text-base flex items-center gap-3">
+                  <CheckCircle2 className="w-6 h-6 text-blue-500 shrink-0" />
+                  Partial Payment Received. Remaining Balance: ${Math.max(0, balance).toFixed(2)}
+                </div>
+              )}
               {status === 'paid' && (
-                <div className="p-4 md:p-5 bg-blue-100 border border-blue-300 rounded-xl text-blue-950 shadow-sm font-bold text-sm md:text-base flex items-center gap-3">
-                  <CheckCircle2 className="w-6 h-6 text-blue-600 shrink-0" />
+                <div className="p-4 md:p-5 bg-zinc-100 border border-zinc-300 rounded-xl text-zinc-800 shadow-sm font-bold text-sm md:text-base flex items-center gap-3">
+                  <CheckCircle2 className="w-6 h-6 text-zinc-600 shrink-0" />
                   Invoice Paid in Full
                 </div>
               )}
@@ -183,7 +220,7 @@ export default function ClientInvoice({
               )}
             </div>
             
-            {(status === 'draft' || status === 'paid' || status === 'approved') && (
+            {(status === 'draft' || status === 'paid' || status === 'approved' || status === 'partially_paid') && (
               <Button onClick={() => window.print()} variant="outline" className="bg-white border-2 border-zinc-300 text-zinc-900 hover:bg-zinc-50 shrink-0 w-full md:w-auto h-12 md:h-12 px-6 rounded-xl shadow-sm font-bold">
                 <Printer className="w-5 h-5 mr-2 text-zinc-600" /> Print Document
               </Button>
@@ -207,7 +244,7 @@ export default function ClientInvoice({
               </div>
             )}
 
-            {status === 'approved' && (
+            {(status === 'approved' || status === 'partially_paid') && (
               <div className="absolute top-1/4 right-0 left-0 bottom-0 flex justify-center opacity-[0.03] pointer-events-none rotate-[-15deg] z-10 overflow-hidden">
                 <span className="text-[80px] md:text-[120px] font-black border-[16px] border-black px-12 py-4 inline-block text-black uppercase tracking-widest rounded-[3rem] h-fit">
                   APPROVED
@@ -259,13 +296,16 @@ export default function ClientInvoice({
 
             <div className="mb-16 w-full relative z-20">
               {groups.map((group, index) => (
-                <div key={index} className="mb-10">
+                <div key={index} className="mb-10 break-inside-avoid">
                   {group && (
-                    <div className="bg-zinc-100 px-4 py-2 mb-4 border-l-4 border-black">
-                      <h4 className="text-sm font-black uppercase tracking-widest text-black">{group}</h4>
+                    <div className={`px-4 py-2 mb-4 border-l-4 ${group === 'Change Order / Addendum' ? 'bg-amber-100 border-amber-500' : 'bg-zinc-100 border-black'}`}>
+                      <h4 className={`text-sm font-black uppercase tracking-widest ${group === 'Change Order / Addendum' ? 'text-amber-900 flex items-center gap-2' : 'text-black'}`}>
+                        {group === 'Change Order / Addendum' && <PlusCircle className="w-4 h-4"/>}
+                        {group}
+                      </h4>
                     </div>
                   )}
-                  <div className="overflow-x-auto pb-4 w-full">
+                  <div className="overflow-x-auto print:overflow-visible pb-4 w-full">
                     <table className="w-full text-left text-sm border-collapse min-w-[600px] md:min-w-full mb-4">
                       {index === 0 && (
                         <thead>
@@ -279,7 +319,7 @@ export default function ClientInvoice({
                       )}
                       <tbody>
                         {items.filter(item => item.group_name === group).map((item) => (
-                          <tr key={item.id} className="border-b border-zinc-200 last:border-0">
+                          <tr key={item.id} className="border-b border-zinc-200 last:border-0 break-inside-avoid">
                             <td className="py-6 px-2 align-top">
                               <p className="font-bold text-black text-base">{item.title}</p>
                               {item.description && <p className="text-zinc-600 text-sm mt-1.5 leading-relaxed max-w-xl font-medium">{item.description}</p>}
@@ -308,7 +348,7 @@ export default function ClientInvoice({
               ))}
             </div>
 
-            <div className="flex flex-col md:flex-row justify-between mb-16 gap-12 relative z-20">
+            <div className="flex flex-col md:flex-row justify-between mb-16 gap-12 relative z-20 print-area context-summary print-break-avoid">
               <div className="w-full md:w-1/2 order-2 md:order-1 bg-zinc-50 p-6 rounded-xl border border-zinc-300 shadow-sm">
                 <p className="font-black text-black text-sm mb-3 uppercase tracking-widest">Notes & Instructions</p>
                 <p className="text-zinc-800 text-sm whitespace-pre-wrap leading-relaxed font-semibold">{invoice.notes || `This quote covers only the listed work. If unexpected issues arise, the customer will be informed and any extra work or costs will require approval. Work may be adjusted or paused if conditions differ from expected or are unsafe. \n \nThank you for choosing ${settings.company_name}. We appreciate your business.`}</p>
@@ -330,7 +370,7 @@ export default function ClientInvoice({
                       </>
                     )}
                     <tr className="text-2xl">
-                      <td className="pt-6 font-black text-black uppercase tracking-widest text-sm">
+                      <td className="pt-6 font-black text-black uppercase tracking-widest text-sm pr-4">
                         Total Due
                         {!isWholeInvoiceTbd && hasTbdItems && <div className="text-amber-600 text-[10px] uppercase mt-1 tracking-widest font-black">+ Variable Costs</div>}
                       </td>
@@ -345,13 +385,35 @@ export default function ClientInvoice({
                         )}
                       </td>
                     </tr>
+                    
+                    {payments.length > 0 && !isWholeInvoiceTbd && payments.map((p: any, i: number) => (
+                      <tr key={i} className="text-emerald-700 text-sm">
+                        <td className="pt-3 font-bold uppercase tracking-widest text-xs pr-4">
+                            Payment: {p.method} <span className="opacity-50 ml-1">({new Date(p.recorded_at).toLocaleDateString()})</span>
+                        </td>
+                        <td className="pt-3 font-mono font-bold text-base">
+                            -${p.amount.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                    {payments.length > 0 && !isWholeInvoiceTbd && (
+                      <tr className="text-xl">
+                        <td className="pt-6 font-black text-black uppercase tracking-widest text-sm pr-4">
+                           Remaining Balance
+                        </td>
+                        <td className="pt-6 font-mono font-black text-blue-600 tracking-tight">
+                           ${Math.max(0, balance).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    
                   </tbody>
                 </table>
               </div>
             </div>
 
             {(hasTbdItems || isWholeInvoiceTbd) && (
-              <div className="mb-12 p-5 bg-amber-50 rounded-xl border-2 border-amber-300 text-sm text-amber-950 leading-relaxed font-semibold flex gap-4 relative z-20 shadow-sm">
+              <div className="mb-12 p-5 bg-amber-50 rounded-xl border-2 border-amber-300 text-sm text-amber-950 leading-relaxed font-semibold flex gap-4 relative z-20 shadow-sm print-break-avoid">
                 <AlertCircle className="w-7 h-7 text-amber-600 shrink-0 mt-0.5" />
                 <p>
                   <span className="font-black uppercase tracking-widest">Pricing Notice:</span> This document contains variable (TBD) pricing for certain requirements. The final total will be adjusted upon completion based on the actual material dimensions, hours, and scope of work specifications.
@@ -426,7 +488,7 @@ export default function ClientInvoice({
 
                       {isMobileSigOpen && (
                           <Button onClick={handleApprove} disabled={isApproving} className="w-full h-14 text-lg font-bold bg-emerald-600 hover:bg-emerald-500 text-white shrink-0 shadow-lg">
-                              {isApproving ? "Processing..." : <><CheckCircle2 className="w-5 h-5 mr-2" /> Approve & Submit</>}
+                             {isApproving ? "Processing..." : <><CheckCircle2 className="w-5 h-5 mr-2" /> Approve & Submit</>}
                           </Button>
                       )}
                    </div>
@@ -440,11 +502,11 @@ export default function ClientInvoice({
               </div>
             ) : (
               (invoice.signature_data || invoice.signed_at) && (
-                <div className="mt-16 pt-12 border-t-[3px] border-zinc-200 break-inside-avoid w-full relative z-30">
+                <div className="mt-16 pt-12 border-t-[3px] border-zinc-200 w-full relative z-30 print-break-avoid">
                   <p className="font-black text-xs uppercase tracking-widest text-zinc-500 mb-6 block">Authorized Signature</p>
                   <div className="w-full max-w-[300px]">
                     {invoice.signature_data && (
-                      <img src={invoice.signature_data} alt="Client Signature" className="max-h-32 object-contain mix-blend-multiply opacity-90 border-b-[3px] border-zinc-300 pb-4 w-full" />
+                      <img src={invoice.signature_data} alt="Client Signature" className="max-h-32 object-contain mix-blend-multiply opacity-90 border-b-[3px] border-zinc-300 pb-4 w-full block" />
                     )}
                     <p className="text-[11px] text-zinc-500 mt-3 font-bold uppercase tracking-wider" suppressHydrationWarning>
                       Signed electronically {formattedSignedDate ? `on ${formattedSignedDate}` : ''}.
