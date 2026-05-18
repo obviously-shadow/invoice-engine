@@ -53,7 +53,8 @@ if (!isBuilding) {
       is_tbd BOOLEAN DEFAULT 0,
       is_archived BOOLEAN DEFAULT 0,
       display_number INTEGER,
-      due_date TEXT DEFAULT ''
+      due_date TEXT DEFAULT '',
+      deposit_amount REAL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS invoice_items (
@@ -95,16 +96,70 @@ if (!isBuilding) {
       password_hash TEXT,
       tax_threshold REAL DEFAULT 30000.00
     );
+
+    CREATE TABLE IF NOT EXISTS material_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_name TEXT DEFAULT 'New Client',
+      client_email TEXT DEFAULT '',
+      client_address TEXT DEFAULT '',
+      token TEXT UNIQUE NOT NULL,
+      status TEXT DEFAULT 'draft',
+      tax_rate REAL DEFAULT 13.00,
+      notes TEXT,
+      sourcing_fee REAL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_archived BOOLEAN DEFAULT 0,
+      display_number INTEGER,
+      total_cost REAL DEFAULT 0,
+      deposit_amount REAL DEFAULT 0,
+      signature_data TEXT,
+      signed_at DATETIME DEFAULT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS material_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_id INTEGER,
+      title TEXT NOT NULL,
+      description TEXT,
+      qty REAL DEFAULT 1,
+      cost REAL NOT NULL,
+      total REAL NOT NULL,
+      FOREIGN KEY (receipt_id) REFERENCES material_receipts (id) ON DELETE CASCADE
+    );
   `);
 
-  try { db.exec("ALTER TABLE invoice_items ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
-  try { db.exec("ALTER TABLE invoice_items ADD COLUMN group_name TEXT DEFAULT ''"); } catch (e) {}
-  try { db.exec("ALTER TABLE invoices ADD COLUMN is_tbd BOOLEAN DEFAULT 0"); } catch (e) {}
-  try { db.exec("ALTER TABLE invoices ADD COLUMN is_archived BOOLEAN DEFAULT 0"); } catch (e) {}
-  try { db.exec("ALTER TABLE invoices ADD COLUMN display_number INTEGER"); } catch (e) {}
-  try { db.exec("ALTER TABLE invoices ADD COLUMN due_date TEXT DEFAULT ''"); } catch (e) {}
-  try { db.exec("ALTER TABLE settings ADD COLUMN password_hash TEXT"); } catch (e) {}
-  try { db.exec("ALTER TABLE settings ADD COLUMN tax_threshold REAL DEFAULT 30000.00"); } catch (e) {}
+  // Bulletproof Safe Migrations (Checks if column exists before altering to prevent crashes)
+  const ensureColumn = (table: string, column: string, definition: string) => {
+    try {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+      if (!cols.some(c => c.name === column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      }
+    } catch (e) {
+      console.error(`Migration failed for ${table}.${column}:`, e);
+    }
+  };
+
+  ensureColumn('invoice_items', 'is_tbd', 'BOOLEAN DEFAULT 0');
+  ensureColumn('invoice_items', 'group_name', "TEXT DEFAULT ''");
+  ensureColumn('invoices', 'is_tbd', 'BOOLEAN DEFAULT 0');
+  ensureColumn('invoices', 'is_archived', 'BOOLEAN DEFAULT 0');
+  ensureColumn('invoices', 'display_number', 'INTEGER');
+  ensureColumn('invoices', 'due_date', "TEXT DEFAULT ''");
+  ensureColumn('invoices', 'deposit_amount', 'REAL DEFAULT 0');
+  ensureColumn('settings', 'password_hash', 'TEXT');
+  ensureColumn('settings', 'tax_threshold', 'REAL DEFAULT 30000.00');
+
+  ensureColumn('material_receipts', 'is_archived', 'BOOLEAN DEFAULT 0');
+  ensureColumn('material_receipts', 'display_number', 'INTEGER');
+  ensureColumn('material_receipts', 'total_cost', 'REAL DEFAULT 0');
+  ensureColumn('material_receipts', 'markup_percentage', 'REAL DEFAULT 0'); 
+  ensureColumn('material_receipts', 'sourcing_fee', 'REAL DEFAULT 0');
+  ensureColumn('material_receipts', 'deposit_amount', 'REAL DEFAULT 0');
+  ensureColumn('material_receipts', 'tax_rate', 'REAL DEFAULT 13.00');
+  ensureColumn('material_receipts', 'status', "TEXT DEFAULT 'draft'");
+  ensureColumn('material_receipts', 'signature_data', 'TEXT');
+  ensureColumn('material_receipts', 'signed_at', 'DATETIME DEFAULT NULL');
 
   const insertSettings = db.prepare(`
     INSERT OR IGNORE INTO settings (

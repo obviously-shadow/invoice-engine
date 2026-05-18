@@ -70,7 +70,7 @@ export default function ClientActionButtons({
   };
 
   const handleAddScope = async () => {
-    if (!scopeTitle || !scopePrice) return;
+    if (!scopeTitle || scopePrice === "") return;
     setIsProcessing(true);
     try {
       await fetch(`/api/invoices/${token}/addendum`, { 
@@ -127,7 +127,6 @@ export default function ClientActionButtons({
 
       {(!isArchived && status !== 'paid' && status !== 'draft') && (
         <>
-          {/* SCOPE CREEP BUTTON */}
           <Button 
             onClick={() => setIsScopeModalOpen(true)} disabled={isProcessing}
             className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 h-8 px-3 text-xs font-bold"
@@ -135,7 +134,6 @@ export default function ClientActionButtons({
             <PlusCircle className="w-3.5 h-3.5 mr-1 text-amber-500" /> Scope
           </Button>
 
-          {/* PAYMENT BUTTON */}
           <Button 
             onClick={() => { setPaymentAmount(balance.toFixed(2)); setIsPaymentModalOpen(true); }} disabled={isProcessing}
             className="bg-emerald-600 hover:bg-emerald-500 text-white h-8 px-4 text-xs font-bold shadow-sm shadow-emerald-900/50"
@@ -143,7 +141,6 @@ export default function ClientActionButtons({
             <DollarSign className="w-3.5 h-3.5 mr-1" /> Pay
           </Button>
 
-          {/* ADDENDUM MODAL */}
           <Dialog open={isScopeModalOpen} onOpenChange={setIsScopeModalOpen}>
             <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-50 sm:max-w-md shadow-2xl">
               <DialogHeader>
@@ -151,27 +148,26 @@ export default function ClientActionButtons({
                 <DialogDescription className="sr-only">Form to add new items to an active invoice without breaking the signature.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2">
-                <p className="text-xs text-zinc-400">This will safely append a new line item to the active project without breaking the client's original signature.</p>
+                <p className="text-xs text-zinc-400">This will safely append a new line item to the active project without breaking the client's original signature. Enter negative amounts for refunds/credits.</p>
                 <div className="grid grid-cols-4 gap-3">
                   <Input placeholder="Item Title" value={scopeTitle} onChange={(e) => setScopeTitle(e.target.value)} className="col-span-3 bg-black border-zinc-700 text-white" />
-                  <Input placeholder="Qty" type="number" value={scopeQty} onChange={(e) => setScopeQty(e.target.value)} className="col-span-1 bg-black border-zinc-700 text-white text-center" />
+                  <Input placeholder="Qty" type="number" step="any" value={scopeQty} onChange={(e) => setScopeQty(e.target.value)} className="col-span-1 bg-black border-zinc-700 text-white text-center" />
                 </div>
                 <Input placeholder="Detailed description..." value={scopeDesc} onChange={(e) => setScopeDesc(e.target.value)} className="bg-black border-zinc-700 text-white" />
                 <div className="space-y-2">
                   <Label className="text-zinc-400 uppercase tracking-widest text-[10px]">Unit Price ($)</Label>
-                  <Input type="number" step="0.01" value={scopePrice} onChange={(e) => setScopePrice(e.target.value)} className="bg-black border-zinc-700 text-white font-mono" />
+                  <Input type="number" step="any" value={scopePrice} onChange={(e) => setScopePrice(e.target.value)} className="bg-black border-zinc-700 text-white font-mono" />
                 </div>
               </div>
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setIsScopeModalOpen(false)} className="text-zinc-400 hover:text-white">Cancel</Button>
-                <Button onClick={handleAddScope} disabled={isProcessing || !scopeTitle || !scopePrice} className="bg-amber-600 hover:bg-amber-500 text-black font-bold px-6">
+                <Button onClick={handleAddScope} disabled={isProcessing || !scopeTitle || scopePrice === ""} className="bg-amber-600 hover:bg-amber-500 text-black font-bold px-6">
                   Add to Invoice
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
 
-          {/* PAYMENT MODAL */}
           <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
             <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-50 sm:max-w-md shadow-2xl">
               <DialogHeader>

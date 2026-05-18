@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import ClientActionButtons from "@/components/admin/ClientActionButtons";
-import { Settings, Plus, FileText, AlertTriangle, Archive, TrendingUp, BarChart3 } from "lucide-react";
+import { Settings, Plus, FileText, AlertTriangle, Archive, TrendingUp, BarChart3, Package } from "lucide-react";
 import UpdateBadge from "@/components/admin/UpdateBadge";
 import LogoutButton from "@/components/admin/LogoutButton";
 
@@ -71,6 +71,11 @@ export default function AdminLedger() {
             <Link href="/admin/archive">
               <Button variant="outline" className="bg-zinc-900 border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-800 h-11 px-5">
                 <Archive className="w-4 h-4 mr-2" /> Archive
+              </Button>
+            </Link>
+            <Link href="/admin/materials">
+              <Button variant="outline" className="bg-zinc-900 border-amber-500/20 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 h-11 px-5 transition-colors">
+                <Package className="w-4 h-4 mr-2" /> Materials
               </Button>
             </Link>
             <Link href="/admin/settings">

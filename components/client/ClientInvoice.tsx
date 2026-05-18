@@ -30,6 +30,7 @@ export default function ClientInvoice({
   const total = subtotal + hst;
   const hasTbdItems = items.some(item => item.is_tbd === 1);
   const isWholeInvoiceTbd = invoice.is_tbd === 1;
+  const requiresDeposit = invoice.deposit_amount && invoice.deposit_amount > 0;
   
   const hasAddendums = items.some(item => item.group_name === 'Change Order / Addendum');
 
@@ -129,6 +130,10 @@ export default function ClientInvoice({
     setIsApproving(false);
   };
 
+  const invoiceNumber = invoice.display_number 
+    ? invoice.display_number.toString() 
+    : invoice.id.toString().padStart(6, '0');
+
   const issueDate = new Date(invoice.created_at).toLocaleDateString();
   let dueDate = issueDate;
 
@@ -142,10 +147,6 @@ export default function ClientInvoice({
       dueDate = d.toLocaleDateString();
     }
   }
-
-  const invoiceNumber = invoice.display_number 
-    ? invoice.display_number.toString() 
-    : invoice.id.toString().padStart(6, '0');
   
   let formattedSignedDate = "";
   if (invoice.signed_at) {
@@ -221,13 +222,15 @@ export default function ClientInvoice({
             </div>
             
             {(status === 'draft' || status === 'paid' || status === 'approved' || status === 'partially_paid') && (
-              <Button onClick={() => window.print()} variant="outline" className="bg-white border-2 border-zinc-300 text-zinc-900 hover:bg-zinc-50 shrink-0 w-full md:w-auto h-12 md:h-12 px-6 rounded-xl shadow-sm font-bold">
-                <Printer className="w-5 h-5 mr-2 text-zinc-600" /> Print Document
-              </Button>
+              <div className="flex gap-3 w-full md:w-auto">
+                <Button onClick={() => window.print()} className="flex-1 bg-zinc-900 text-white hover:bg-zinc-800 h-12 px-6 rounded-xl shadow-sm font-bold">
+                  <Printer className="w-5 h-5 mr-2" /> Save PDF / Print
+                </Button>
+              </div>
             )}
           </div>
 
-          <div className="print-area bg-white md:shadow-2xl md:rounded-xl p-6 sm:p-8 md:p-16 border-t md:border border-zinc-200 relative overflow-hidden z-10 min-h-screen md:min-h-0">
+          <div id="printable-document" className="print-area bg-white md:shadow-2xl md:rounded-xl p-6 sm:p-8 md:p-16 border-t md:border border-zinc-200 relative overflow-hidden z-10 min-h-screen md:min-h-0">
             
             {/* LARGE WATERMARK BACKGROUND */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 overflow-hidden opacity-[0.02]">
@@ -321,18 +324,21 @@ export default function ClientInvoice({
                         {items.filter(item => item.group_name === group).map((item) => (
                           <tr key={item.id} className="border-b border-zinc-200 last:border-0 break-inside-avoid">
                             <td className="py-6 px-2 align-top">
-                              <p className="font-bold text-black text-base">{item.title}</p>
+                              <div className="flex items-center gap-2 mb-1.5">
+                                 <p className={`font-bold text-base ${item.total < 0 ? 'text-red-600' : 'text-black'}`}>{item.title}</p>
+                                 {item.total < 0 && <span className="bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-widest">Refund / Credit</span>}
+                              </div>
                               {item.description && <p className="text-zinc-600 text-sm mt-1.5 leading-relaxed max-w-xl font-medium">{item.description}</p>}
                             </td>
-                            <td className="py-6 px-2 text-right text-black font-bold align-top text-base">{item.qty}</td>
-                            <td className="py-6 px-2 text-right text-zinc-800 align-top font-semibold">
+                            <td className={`py-6 px-2 text-right font-bold align-top text-base ${item.total < 0 ? 'text-red-600' : 'text-black'}`}>{item.qty}</td>
+                            <td className={`py-6 px-2 text-right align-top font-semibold ${item.total < 0 ? 'text-red-600' : 'text-zinc-800'}`}>
                               {item.is_tbd === 1 ? (
                                 <span className="text-zinc-400 text-sm">--</span>
                               ) : (
                                 `$${item.rate.toFixed(2)}`
                               )}
                             </td>
-                            <td className="py-6 px-2 text-right text-black font-bold align-top text-base">
+                            <td className={`py-6 px-2 text-right font-bold align-top text-base ${item.total < 0 ? 'text-red-600' : 'text-black'}`}>
                               {item.is_tbd === 1 ? (
                                 <span className="bg-amber-100 text-amber-900 border-2 border-amber-400 px-2 py-1 rounded text-xs font-black tracking-widest uppercase shadow-sm">TBD</span>
                               ) : (
@@ -370,11 +376,11 @@ export default function ClientInvoice({
                       </>
                     )}
                     <tr className="text-2xl">
-                      <td className="pt-6 font-black text-black uppercase tracking-widest text-sm pr-4">
-                        Total Due
+                      <td className={`pt-6 font-black uppercase tracking-widest text-sm pr-4 ${requiresDeposit && payments.length === 0 ? 'text-zinc-500' : 'text-black'}`}>
+                        Total Cost
                         {!isWholeInvoiceTbd && hasTbdItems && <div className="text-amber-600 text-[10px] uppercase mt-1 tracking-widest font-black">+ Variable Costs</div>}
                       </td>
-                      <td className="pt-6 font-mono font-black text-black tracking-tight">
+                      <td className={`pt-6 font-mono font-black tracking-tight ${requiresDeposit && payments.length === 0 ? 'text-zinc-500' : 'text-black'}`}>
                         {isWholeInvoiceTbd ? (
                           <span className="bg-amber-100 text-amber-900 border-2 border-amber-400 px-3 py-1 rounded text-lg font-black tracking-widest uppercase shadow-sm">TBD</span>
                         ) : (
@@ -386,6 +392,17 @@ export default function ClientInvoice({
                       </td>
                     </tr>
                     
+                    {requiresDeposit && payments.length === 0 && !isWholeInvoiceTbd && (
+                       <tr className="text-xl">
+                         <td className="pt-4 font-black text-amber-600 uppercase tracking-widest text-sm pr-4">
+                            Required Deposit (Upfront)
+                         </td>
+                         <td className="pt-4 font-mono font-black text-amber-600 tracking-tight">
+                            ${invoice.deposit_amount.toFixed(2)}
+                         </td>
+                       </tr>
+                    )}
+
                     {payments.length > 0 && !isWholeInvoiceTbd && payments.map((p: any, i: number) => (
                       <tr key={i} className="text-emerald-700 text-sm">
                         <td className="pt-3 font-bold uppercase tracking-widest text-xs pr-4">
@@ -396,6 +413,7 @@ export default function ClientInvoice({
                         </td>
                       </tr>
                     ))}
+
                     {payments.length > 0 && !isWholeInvoiceTbd && (
                       <tr className="text-xl">
                         <td className="pt-6 font-black text-black uppercase tracking-widest text-sm pr-4">

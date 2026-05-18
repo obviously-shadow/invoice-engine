@@ -10,7 +10,6 @@ export async function POST(
     const body = await request.json();
     const { title, description, qty, price } = body;
 
-    // Verify the invoice exists and is currently active
     const invoice = db.prepare('SELECT id, status FROM invoices WHERE token = ?').get(resolvedParams.token) as any;
     if (!invoice) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
 
@@ -20,7 +19,6 @@ export async function POST(
 
     const total = (parseFloat(price) || 0) * (parseFloat(qty) || 1);
 
-    // Inject the new item safely without touching the original signed rows
     db.prepare(`
       INSERT INTO invoice_items (invoice_id, title, description, qty, rate, total, is_tbd, group_name) 
       VALUES (?, ?, ?, ?, ?, ?, 0, ?)
@@ -31,7 +29,7 @@ export async function POST(
       parseFloat(qty) || 1, 
       parseFloat(price) || 0, 
       total, 
-      'Change Order / Addendum' // Hardcoded group name to trigger client alerts
+      'Change Order / Addendum'
     );
 
     return NextResponse.json({ success: true });

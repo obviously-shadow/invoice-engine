@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import Link from "next/link";
-import { ArrowLeft, Layers, Plus, X, Send, CheckCircle2, Tag, CalendarClock } from "lucide-react";
+import { ArrowLeft, Layers, Plus, X, Send, CheckCircle2, Tag, CalendarClock, ChevronUp, ChevronDown } from "lucide-react";
 
 export default function InvoiceBuilder({ 
   templates, 
@@ -39,6 +39,7 @@ export default function InvoiceBuilder({
   const [clientAddress, setClientAddress] = useState(initialInvoice?.client_address || "");
   
   const [customDueDate, setCustomDueDate] = useState(initialInvoice?.due_date || "");
+  const [depositAmount, setDepositAmount] = useState(initialInvoice?.deposit_amount?.toString() || "");
 
   const [currentGroup, setCurrentGroup] = useState("");
   const [customTitle, setCustomTitle] = useState("");
@@ -76,7 +77,7 @@ export default function InvoiceBuilder({
   };
 
   const addCustomItem = () => {
-    if (!customTitle || (!customPrice && !isTBD)) return;
+    if (!customTitle || (customPrice === "" && !isTBD)) return;
     setActiveInvoice([...activeInvoice, { 
       title: customTitle, 
       description: customDesc,
@@ -95,7 +96,6 @@ export default function InvoiceBuilder({
   };
 
   const updateItemQty = (uniqueId: number, newQty: number) => {
-    if (newQty < 1) return;
     setActiveInvoice(activeInvoice.map(item => item.uniqueId === uniqueId ? { ...item, qty: newQty } : item));
   };
 
@@ -105,6 +105,32 @@ export default function InvoiceBuilder({
 
   const removeJob = (uniqueId: number) => {
     setActiveInvoice(activeInvoice.filter(item => item.uniqueId !== uniqueId));
+  };
+
+  const moveItem = (uniqueId: number, direction: 'up' | 'down') => {
+    const index = activeInvoice.findIndex(i => i.uniqueId === uniqueId);
+    if (index < 0) return;
+    
+    const newInvoice = [...activeInvoice];
+    const currentGroup = newInvoice[index].group_name;
+    
+    let swapIndex = -1;
+    if (direction === 'up') {
+      for (let i = index - 1; i >= 0; i--) {
+        if (newInvoice[i].group_name === currentGroup) { swapIndex = i; break; }
+      }
+    } else {
+      for (let i = index + 1; i < newInvoice.length; i++) {
+        if (newInvoice[i].group_name === currentGroup) { swapIndex = i; break; }
+      }
+    }
+
+    if (swapIndex !== -1) {
+      const temp = newInvoice[index];
+      newInvoice[index] = newInvoice[swapIndex];
+      newInvoice[swapIndex] = temp;
+      setActiveInvoice(newInvoice);
+    }
   };
 
   const generateLink = async () => {
@@ -127,7 +153,8 @@ export default function InvoiceBuilder({
           tax_rate: settings.tax_rate,
           notes: initialInvoice?.notes || "",
           is_tbd: invoiceIsTBD,
-          due_date: customDueDate
+          due_date: customDueDate,
+          deposit_amount: depositAmount
         })
       });
       const data = await res.json();
@@ -235,14 +262,15 @@ export default function InvoiceBuilder({
                 
                 <div className="grid grid-cols-4 gap-3">
                   <Input placeholder="Service Title" value={customTitle} onChange={e => setCustomTitle(e.target.value)} className="col-span-3 bg-black border-zinc-700 text-zinc-100" />
-                  <Input placeholder="Qty" type="number" value={customQty} onChange={e => setCustomQty(e.target.value)} className="col-span-1 bg-black border-zinc-700 text-zinc-100 text-center" />
+                  <Input placeholder="Qty" type="number" step="any" value={customQty} onChange={e => setCustomQty(e.target.value)} className="col-span-1 bg-black border-zinc-700 text-zinc-100 text-center" />
                 </div>
                 <Input placeholder="Detailed description of the work" value={customDesc} onChange={e => setCustomDesc(e.target.value)} className="bg-black border-zinc-700 text-zinc-100" />
                 
                 <div className="flex gap-3">
                   <Input 
-                    placeholder={isTBD ? "Price is Variable" : "Unit Price ($)"} 
+                    placeholder={isTBD ? "Price is Variable" : "Unit Price ($) Allows Negatives"} 
                     type="number" 
+                    step="any"
                     disabled={isTBD}
                     value={isTBD ? "" : customPrice} 
                     onChange={e => setCustomPrice(e.target.value)} 
@@ -300,8 +328,16 @@ export default function InvoiceBuilder({
                         <Table>
                           <TableBody>
                             {activeInvoice.filter(item => item.group_name === group).map((item) => (
-                              <TableRow key={item.uniqueId} className="border-zinc-800/50 hover:bg-zinc-800/30 group">
-                                <TableCell className="font-medium text-zinc-200 py-4 pl-3 align-top">
+                              <TableRow key={item.uniqueId} className={`border-zinc-800/50 hover:bg-zinc-800/30 group ${item.isCustom && item.price * item.qty < 0 ? 'bg-red-950/10 hover:bg-red-950/20' : ''}`}>
+                                
+                                <TableCell className="pl-1 w-6">
+                                   <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button onClick={() => moveItem(item.uniqueId, 'up')} className="text-zinc-600 hover:text-white p-0.5"><ChevronUp className="w-3.5 h-3.5" /></button>
+                                      <button onClick={() => moveItem(item.uniqueId, 'down')} className="text-zinc-600 hover:text-white p-0.5"><ChevronDown className="w-3.5 h-3.5" /></button>
+                                   </div>
+                                </TableCell>
+
+                                <TableCell className={`font-medium py-4 align-top ${item.isCustom && item.price * item.qty < 0 ? 'text-red-400' : 'text-zinc-200'}`}>
                                   <span className="block leading-snug">{item.title}</span>
                                   <span className="block text-[11px] text-zinc-500 mt-1 max-w-[200px] truncate">{item.isCustom ? item.description : 'Standard Service'}</span>
                                 </TableCell>
@@ -310,15 +346,16 @@ export default function InvoiceBuilder({
                                   <div className="flex flex-col gap-1 items-end">
                                     <Input 
                                       type="number" 
+                                      step="any"
                                       value={item.qty} 
-                                      onChange={(e) => updateItemQty(item.uniqueId, parseInt(e.target.value) || 1)}
+                                      onChange={(e) => updateItemQty(item.uniqueId, parseFloat(e.target.value) || 0)}
                                       className="h-7 w-16 bg-black border-zinc-700 text-zinc-300 text-center text-xs" 
                                     />
                                     <span className="text-[10px] text-zinc-600 uppercase tracking-widest">Qty</span>
                                   </div>
                                 </TableCell>
 
-                                <TableCell className="text-right text-zinc-300 font-mono text-sm pt-4 align-top w-[100px]">
+                                <TableCell className={`text-right font-mono text-sm pt-4 align-top w-[100px] ${item.isCustom && item.price * item.qty < 0 ? 'text-red-400' : 'text-zinc-300'}`}>
                                   {item.is_tbd ? (
                                     <button 
                                       onClick={() => toggleItemTbd(item.uniqueId)}
@@ -355,10 +392,18 @@ export default function InvoiceBuilder({
                   <div className="flex justify-between text-zinc-400 font-medium">
                     <span>Subtotal</span><span className="font-mono text-zinc-300">${subtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-zinc-400 font-medium">
+                  <div className="flex justify-between text-zinc-400 font-medium pb-4 border-b border-zinc-800/50 mb-4">
                     <span>Tax ({settings.tax_rate}%)</span><span className="font-mono text-zinc-300">${hst.toFixed(2)}</span>
                   </div>
                   
+                  <div className="flex justify-between items-center text-zinc-400 font-medium">
+                    <span>Required Deposit Upfront</span>
+                    <div className="flex items-center gap-2">
+                       <span className="text-zinc-500">$</span>
+                       <Input type="number" step="0.01" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} className="w-28 bg-black border-zinc-700 text-zinc-100 font-mono text-right" placeholder="0.00"/>
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between mt-4 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
                     <div className="space-y-0.5">
                       <p className="text-white font-bold text-sm">Force TBD Final Total</p>

@@ -5,11 +5,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ toke
   try {
     const resolvedParams = await params;
     const body = await request.json();
-    const { client_name, client_email, client_address, items, tax_rate, notes, is_tbd, due_date } = body;
+    const { client_name, client_email, client_address, items, tax_rate, notes, is_tbd, due_date, deposit_amount } = body;
 
     const updateInvoice = db.prepare(`
       UPDATE invoices 
-      SET client_name=?, client_email=?, client_address=?, tax_rate=?, notes=?, is_tbd=?, is_archived=0, due_date=? 
+      SET client_name=?, client_email=?, client_address=?, tax_rate=?, notes=?, is_tbd=?, is_archived=0, due_date=?, deposit_amount=? 
       WHERE token=?
     `);
     
@@ -17,8 +17,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ toke
     const insertItem = db.prepare("INSERT INTO invoice_items (invoice_id, title, description, qty, rate, total, is_tbd, group_name) VALUES ((SELECT id FROM invoices WHERE token=?), ?, ?, ?, ?, ?, ?, ?)");
 
     const transaction = db.transaction(() => {
-      // Update the invoice details without touching the status or signature data
-      const result = updateInvoice.run(client_name, client_email, client_address, tax_rate, notes || '', is_tbd ? 1 : 0, due_date || '', resolvedParams.token);
+      const result = updateInvoice.run(client_name, client_email, client_address, tax_rate, notes || '', is_tbd ? 1 : 0, due_date || '', parseFloat(deposit_amount) || 0, resolvedParams.token);
       
       if (result.changes === 0) {
         throw new Error("Invoice does not exist.");
@@ -27,9 +26,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ toke
       deleteItems.run(resolvedParams.token);
 
       for (const item of items) {
-        const qty = item.qty || 1;
+        const qty = parseFloat(item.qty) || 1;
         const groupName = item.group_name || '';
-        const rate = item.price || 0;
+        const rate = parseFloat(item.price) || 0;
         const total = item.is_tbd ? 0 : (rate * qty);
         insertItem.run(resolvedParams.token, item.title, item.description || '', qty, rate, total, item.is_tbd ? 1 : 0, groupName);
       }
