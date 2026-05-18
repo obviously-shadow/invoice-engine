@@ -15,17 +15,21 @@ const geistMono = Geist_Mono({
 
 export async function generateMetadata(): Promise<Metadata> {
   try {
-    // Dynamically pull your business name for the global tab titles and embeds
     const settings = db.prepare("SELECT company_name FROM settings WHERE id = 1").get() as any;
     const companyName = settings?.company_name || "Client Portal";
+    
+    // Safely extract your live deployment domain to create absolute image URL pathing
+    const origin = process.env.APP_ORIGIN || "";
+    const logoUrl = origin ? `${origin}/LOGO.png` : "/LOGO.png";
 
     return {
       title: `${companyName} | Command Center`,
       description: `Secure document and operations portal for ${companyName}.`,
+      metadataBase: origin ? new URL(origin) : undefined,
       icons: {
-        icon: "/LOGO.png",
-        shortcut: "/LOGO.png",
-        apple: "/LOGO.png",
+        icon: logoUrl,
+        shortcut: logoUrl,
+        apple: logoUrl,
       },
       openGraph: {
         title: `${companyName} | Secure Portal`,
@@ -33,16 +37,15 @@ export async function generateMetadata(): Promise<Metadata> {
         siteName: companyName,
         images: [
           {
-            url: "/LOGO.png",
-            width: 800,
-            height: 600,
+            url: logoUrl,
+            width: 512,
+            height: 512,
             alt: `${companyName} Brand Logo`,
           },
         ],
       },
     };
   } catch (error) {
-    // Fallback if the database hasn't been initialized via /setup yet
     return {
       title: "Secure Client Portal",
       description: "Business operations and document engine.",

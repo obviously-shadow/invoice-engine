@@ -18,7 +18,6 @@ function getMaterialData(token: string) {
   return { receipt, items, settings };
 }
 
-// Dynamically generate the iMessage / Slack / Text Message link embeds
 export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
   const resolvedParams = await params;
   const data = getMaterialData(resolvedParams.token);
@@ -31,13 +30,17 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
     ? data.receipt.display_number.toString() 
     : data.receipt.id.toString().padStart(6, '0');
 
+  const origin = process.env.APP_ORIGIN || "";
+  const logoUrl = origin ? `${origin}/LOGO.png` : "/LOGO.png";
+
   return {
     title: `Expense Report #${docNum} | ${data.settings.company_name}`,
     description: `Secure material expense log for ${data.receipt.client_name}.`,
+    metadataBase: origin ? new URL(origin) : undefined,
     openGraph: {
       title: `${data.settings.company_name} - Expense Report #${docNum}`,
       description: `Click to view material and hardware expenses for your project.`,
-      images: ['/LOGO.png'],
+      images: [logoUrl],
       siteName: data.settings.company_name
     }
   };

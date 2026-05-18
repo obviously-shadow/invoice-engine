@@ -19,7 +19,6 @@ function getInvoiceData(token: string) {
   return { invoice, items, settings, payments };
 }
 
-// Dynamically generate the iMessage / Slack / Text Message link embeds
 export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
   const resolvedParams = await params;
   const data = getInvoiceData(resolvedParams.token);
@@ -34,13 +33,17 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
     ? data.invoice.display_number.toString() 
     : data.invoice.id.toString().padStart(6, '0');
 
+  const origin = process.env.APP_ORIGIN || "";
+  const logoUrl = origin ? `${origin}/LOGO.png` : "/LOGO.png";
+
   return {
     title: `${docType} #${docNum} | ${data.settings.company_name}`,
     description: `Secure ${docType.toLowerCase()} issued to ${data.invoice.client_name}.`,
+    metadataBase: origin ? new URL(origin) : undefined,
     openGraph: {
       title: `${data.settings.company_name} - ${docType} #${docNum}`,
       description: `Click to view your secure ${docType.toLowerCase()}.`,
-      images: ['/LOGO.png'],
+      images: [logoUrl],
       siteName: data.settings.company_name
     }
   };
