@@ -2,6 +2,7 @@ import db from "@/lib/db";
 import ClientMaterial from "@/components/client/ClientMaterial";
 import { notFound } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
+import type { Metadata } from "next";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -12,9 +13,34 @@ function getMaterialData(token: string) {
   if (!receipt) return null;
 
   const items = db.prepare('SELECT * FROM material_items WHERE receipt_id = ?').all(receipt.id);
-  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
   
   return { receipt, items, settings };
+}
+
+// Dynamically generate the iMessage / Slack / Text Message link embeds
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
+  const resolvedParams = await params;
+  const data = getMaterialData(resolvedParams.token);
+
+  if (!data || !data.receipt || data.receipt.is_archived === 1) {
+    return { title: 'Document Voided' };
+  }
+
+  const docNum = data.receipt.display_number 
+    ? data.receipt.display_number.toString() 
+    : data.receipt.id.toString().padStart(6, '0');
+
+  return {
+    title: `Expense Report #${docNum} | ${data.settings.company_name}`,
+    description: `Secure material expense log for ${data.receipt.client_name}.`,
+    openGraph: {
+      title: `${data.settings.company_name} - Expense Report #${docNum}`,
+      description: `Click to view material and hardware expenses for your project.`,
+      images: ['/LOGO.png'],
+      siteName: data.settings.company_name
+    }
+  };
 }
 
 export default async function MaterialPage({ params }: { params: Promise<{ token: string }> }) {
