@@ -55,13 +55,12 @@ export default function ClientActionButtons({
   const handleLogPayment = async () => {
     setIsProcessing(true);
     const amt = parseFloat(paymentAmount) || 0;
-    const isFinal = amt >= balance;
 
     try {
       await fetch(`/api/invoices/${token}/payments`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: amt, method: paymentMethod, isFinal })
+        body: JSON.stringify({ amount: amt, method: paymentMethod })
       });
       setIsPaymentModalOpen(false);
       router.refresh(); 
