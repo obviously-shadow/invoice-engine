@@ -1,3 +1,10 @@
+
+
+<img width="1273" height="901" alt="Screenshot 2026-06-26 140420" src="https://github.com/user-attachments/assets/85bc000d-3fde-4f3d-923b-f43470a2eaed" />
+---
+<img width="1219" height="859" alt="Screenshot 2026-06-26 140401" src="https://github.com/user-attachments/assets/13decb46-1a0e-4db6-8f50-38e153f047a6" />
+
+
 # Invoice Engine — Self-Hosted CRM
 
 Invoice Engine is a lightweight, self-hosted estimation and invoicing platform built specifically for independent contractors. It replaces scattered PDFs and email threads with cryptographically secure, interactive web documents.
